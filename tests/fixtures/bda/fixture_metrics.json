@@ -1,0 +1,8 @@
+[
+  {"method": "image_only", "condition": "clean", "metric": "f1", "value": 0.72, "seed": 27},
+  {"method": "image_only", "condition": "clean", "metric": "f1", "value": 0.74, "seed": 2701},
+  {"method": "image_only", "condition": "clean", "metric": "accuracy", "value": 0.81, "seed": 27},
+  {"method": "audio_only", "condition": "clean", "metric": "f1", "value": 0.65, "seed": 27},
+  {"method": "audio_only", "condition": "clean", "metric": "f1", "value": 0.67, "seed": 2701},
+  {"method": "late_fusion", "condition": "clean", "metric": "f1", "value": 0.80, "seed": 27}
+]

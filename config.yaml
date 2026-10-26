@@ -113,6 +113,13 @@ latency:
   total_ms: 250
 
 # ---------------------------------------------------------------------------
+# BDA (Big Data Analytics) settings
+# ---------------------------------------------------------------------------
+bda:
+  engine: "auto"                # auto | hadoop_streaming | python_streaming_local
+  self_check: false             # run self-check on fixture data
+
+# ---------------------------------------------------------------------------
 # Smoke test mode — tiny settings, CPU-only, no real data needed
 # ---------------------------------------------------------------------------
 smoke:

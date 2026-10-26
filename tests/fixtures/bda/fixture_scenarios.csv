@@ -1,0 +1,9 @@
+split,image_label,audio_label,scenario,suspicious,risk
+train,human,gunshot,human_gunshot,1,HIGH
+train,vehicle,gunshot,vehicle_gunshot,1,HIGH
+train,animal,gunshot,animal_gunshot,0,MEDIUM
+train,human,background,human_background,0,MEDIUM
+val,vehicle,background,vehicle_background,0,MEDIUM
+val,animal,background,animal_background,0,LOW
+test,empty,background,empty_background,0,LOW
+test,empty,background,empty_thunder,0,LOW

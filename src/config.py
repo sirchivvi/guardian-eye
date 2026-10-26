@@ -176,6 +176,22 @@ class LatencyConfig(BaseModel):
     total_ms: float = Field(250.0, gt=0)
 
 
+class BdaConfig(BaseModel):
+    """Big Data Analytics (BDA) module settings."""
+
+    engine: str = "auto"
+    self_check: bool = False
+
+    @field_validator("engine")
+    @classmethod
+    def _check_engine(cls, v: str) -> str:
+        """Validate engine name."""
+        allowed = {"auto", "hadoop_streaming", "python_streaming_local"}
+        if v not in allowed:
+            raise ValueError(f"bda.engine must be one of {allowed}, got {v!r}")
+        return v
+
+
 class SmokeConfig(BaseModel):
     """Settings for CPU-only smoke tests."""
 
@@ -213,6 +229,7 @@ class GuardianEyeConfig(BaseModel):
     robustness: RobustnessConfig = Field(default_factory=RobustnessConfig)
     evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
     latency: LatencyConfig = Field(default_factory=LatencyConfig)
+    bda: BdaConfig = Field(default_factory=BdaConfig)
     smoke: SmokeConfig = Field(default_factory=SmokeConfig)
 
 

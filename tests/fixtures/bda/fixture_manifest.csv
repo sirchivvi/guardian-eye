@@ -1,0 +1,13 @@
+path,modality,source,label,view,site_or_device,noise_tag,original_split,group_id,split,notes
+raw/birdsai/frames/seq1_00001.jpg,image,birdsai,human,aerial_thermal,site_alpha,not_thunder_wind,train,birdsai_seq1,train,
+raw/birdsai/frames/seq1_00002.jpg,image,birdsai,animal,aerial_thermal,site_alpha,not_thunder_wind,train,birdsai_seq1,train,
+raw/birdsai/frames/seq2_00001.jpg,image,birdsai,empty,aerial_thermal,site_beta,not_thunder_wind,test,birdsai_seq2,test,
+raw/cct/human/img_001.jpg,image,cct,human,camera_trap,station_A,not_thunder_wind,unspecified,cct_station_A,train,
+raw/cct/vehicle/img_002.jpg,image,cct,vehicle,camera_trap,station_A,not_thunder_wind,unspecified,cct_station_A,train,
+raw/cct/animal/img_003.jpg,image,cct,animal,camera_trap,station_B,not_thunder_wind,unspecified,cct_station_B,val,
+raw/serengeti/animal/img_100.jpg,image,serengeti,animal,camera_trap,cam_42,not_thunder_wind,unspecified,serengeti_cam_42,test,
+raw/serengeti/empty/img_101.jpg,image,serengeti,empty,camera_trap,cam_42,not_thunder_wind,unspecified,serengeti_cam_42,test,
+raw/belize/Training data/Gunshot/gs_001.wav,audio,belize,gunshot,acoustic,recorder_1,not_thunder_wind,train,belize_recorder_1,train,
+raw/belize/Training data/Background/bg_001.wav,audio,belize,background,acoustic,recorder_1,not_thunder_wind,train,belize_recorder_1,train,
+raw/vietnam/gunshot/vn_001.wav,audio,vietnam,gunshot,acoustic,cmr_site,not_thunder_wind,unspecified,vietnam_cmr,val,
+raw/esc50/thunderstorm/1-100032-A-19.wav,audio,esc50,background,acoustic,unknown,thunder_wind,unspecified,esc50_fold1,test,thunder_wind clip

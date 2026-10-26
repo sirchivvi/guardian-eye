@@ -1,0 +1,5 @@
+method,condition,metric,n,mean,sample_std
+audio_only,clean,f1,2,0.66,0.014142135623730951
+image_only,clean,accuracy,1,0.81,
+image_only,clean,f1,2,0.73,0.014142135623730951
+late_fusion,clean,f1,1,0.80,

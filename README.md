@@ -30,8 +30,9 @@ scene.
 11. [Running on Kaggle](#11-running-on-kaggle)
 12. [Resuming from checkpoints](#12-resuming-from-checkpoints)
 13. [Phased development](#13-phased-development)
-14. [Datasets](#14-datasets)
-15. [Academic scope disclaimer](#15-academic-scope-disclaimer)
+14. [Big Data Analytics (BDA)](#14-big-data-analytics-bda)
+15. [Datasets](#15-datasets)
+16. [Academic scope disclaimer](#16-academic-scope-disclaimer)
 
 ---
 
@@ -303,16 +304,51 @@ and optionally `scheduler_state`, `scaler_state`.
 | Phase | Scope | Status |
 |---|---|---|
 | **0** | Scaffold, config, decisions, checkpoints, CI | ✅ Complete |
-| 1 | Image branch + audio branch training | Not started |
-| 2 | Pairing, fusion, evaluation | Not started |
-| 3 | Bootstrap difference analysis (BDA) | Not started |
-| 4 | REST API for inference | Not started |
+| **1** | Manifest scanning, validation, splits, verify_data | ✅ Complete |
+| **2** | Unimodal model architectures, training, evaluation | ✅ Complete |
+| **3** | Big Data Analytics (BDA) MapReduce & Spark jobs | ✅ Complete |
+| 4 | Synthetic pairing & multi-modal fusion | Not started |
+| 5 | Full evaluation & statistical comparison | Not started |
+| 6 | REST API for inference & deployment | Not started |
 
 Each phase is completed and reviewed before the next begins.
 
 ---
 
-## 14. Datasets
+## 14. Big Data Analytics (BDA)
+
+The BDA module (`src/bda/`) provides distributed-style data aggregation for manifests, scenario pairings, and evaluation metrics across seeds.
+
+### Key capabilities:
+- **Hadoop-Streaming MapReduce Jobs**:
+  - `mapper_class.py` + `reducer_sum.py`: class counts grouped by `(modality, source, label)`.
+  - `mapper_scenario.py` + `reducer_sum.py`: pairing counts grouped by `(split, scenario, suspicious, risk)`.
+  - `mapper_metric.py` + `reducer_metric.py`: evaluation summary grouped by `(method, condition, metric)` reporting $n$, mean, and sample standard deviation ($n-1$ divisor).
+- **Execution Engine**:
+  - Automatically runs via Hadoop Streaming jar if `HADOOP_HOME` is present, or falls back to `python_streaming_local` (pure Python in-memory sort/pipe).
+  - The active execution engine is logged and recorded in `bda_status.json`.
+- **Optional PySpark Jobs** (`src/bda/spark_jobs.py`):
+  - Ingestion to Parquet (`manifest.parquet`).
+  - Class-weight computation $w_c = \frac{N}{k \cdot n_c}$ (`class_weights.parquet`).
+  - Audio log-mel feature extraction via pandas UDF (`audio_features.parquet`).
+  - PySpark is optional; if missing, returns `NOT YET RUN` without failing core tests.
+- **Hive DDL Schema** (`src/bda/schema.hql`):
+  - Defines external tables for all outputs.
+
+### Commands:
+```bash
+# Run self-check against fixture data
+make bda-check
+
+# Run full BDA streaming pipeline
+make bda
+```
+
+For full architecture and design details, see [docs/bda.md](docs/bda.md).
+
+---
+
+## 15. Datasets
 
 | Dataset | Modality | Notes |
 |---|---|---|
@@ -328,7 +364,7 @@ Datasets are **never downloaded automatically**.  Place them under
 
 ---
 
-## 15. Academic scope disclaimer
+## 16. Academic scope disclaimer
 
 GuardianEye is an **academic proof of concept**.
 

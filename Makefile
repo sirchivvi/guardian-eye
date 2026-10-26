@@ -13,7 +13,8 @@
 #   make pairs         — (Phase 2) create image-audio pairs    [NOT YET]
 #   make fuse          — (Phase 2) run late-fusion evaluation  [NOT YET]
 #   make evaluate      — (Phase 2) run full evaluation harness [NOT YET]
-#   make bda           — (Phase 3) bootstrap difference analysis [NOT YET]
+#   make bda           — (Phase 3) run BDA streaming jobs
+#   make bda-check     — (Phase 3) run BDA self-check on fixtures
 #   make serve         — (Phase 4) start the REST API server   [NOT YET]
 #   make smoke         — run --smoke mode (fast CPU self-test)
 # =============================================================================
@@ -32,7 +33,7 @@ _DATA_FLAG    := $(if $(DATA_ROOT),--data-root $(DATA_ROOT),)
 _RESULTS_FLAG := $(if $(RESULTS_ROOT),--results-root $(RESULTS_ROOT),)
 
 .PHONY: setup test lint smoke data-check manifest pack-data \
-        train-image train-audio pairs fuse evaluate bda serve \
+        train-image train-audio pairs fuse evaluate bda bda-check serve \
         clean help
 
 # ---------------------------------------------------------------------------
@@ -90,7 +91,10 @@ evaluate:
 	$(_not_yet)
 
 bda:
-	$(_not_yet)
+	$(PYTHON) scripts/run_bda.py $(_DATA_FLAG) $(_RESULTS_FLAG)
+
+bda-check:
+	$(PYTHON) scripts/run_bda.py --self-check $(_DATA_FLAG) $(_RESULTS_FLAG)
 
 serve:
 	$(_not_yet)

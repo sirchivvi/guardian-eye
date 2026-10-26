@@ -1,0 +1,9 @@
+split,scenario,suspicious,risk,count
+test,empty_background,0,LOW,1
+test,empty_thunder,0,LOW,1
+train,animal_gunshot,0,MEDIUM,1
+train,human_background,0,MEDIUM,1
+train,human_gunshot,1,HIGH,1
+train,vehicle_gunshot,1,HIGH,1
+val,animal_background,0,LOW,1
+val,vehicle_background,0,MEDIUM,1

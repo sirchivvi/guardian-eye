@@ -1,0 +1,13 @@
+modality,source,label,count
+audio,belize,background,1
+audio,belize,gunshot,1
+audio,esc50,background,1
+audio,vietnam,gunshot,1
+image,birdsai,animal,1
+image,birdsai,empty,1
+image,birdsai,human,1
+image,cct,animal,1
+image,cct,human,1
+image,cct,vehicle,1
+image,serengeti,animal,1
+image,serengeti,empty,1

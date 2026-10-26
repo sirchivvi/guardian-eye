@@ -26,6 +26,9 @@ dev = [
     "pytest>=8.2",
     "ruff>=0.4",
 ]
+spark = [
+    "pyspark>=3.5",
+]
 
 [project.scripts]
 guardian-run = "scripts.run:main"
