@@ -131,6 +131,7 @@ class PairsConfig(BaseModel):
     """Image–audio synthetic pairing limits."""
 
     max_pairs_per_split: int = Field(10_000, ge=1)
+    max_pairs_per_scenario: int = Field(1500, ge=1)
     min_images_per_class: int = Field(50, ge=1)
     cross_split_allowed: bool = False
 

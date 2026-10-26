@@ -33,7 +33,7 @@ _DATA_FLAG    := $(if $(DATA_ROOT),--data-root $(DATA_ROOT),)
 _RESULTS_FLAG := $(if $(RESULTS_ROOT),--results-root $(RESULTS_ROOT),)
 
 .PHONY: setup test lint smoke data-check manifest pack-data \
-        train-image train-audio pairs fuse evaluate bda bda-check serve \
+        train-image train-audio pairs pairs-check fuse evaluate bda bda-check serve \
         clean help
 
 # ---------------------------------------------------------------------------
@@ -82,7 +82,10 @@ evaluate-unimodal:
 	$(PYTHON) scripts/evaluate_unimodal.py $(_DATA_FLAG) $(_RESULTS_FLAG)
 
 pairs:
-	$(_not_yet)
+	$(PYTHON) scripts/run_pairing.py $(_DATA_FLAG) $(_RESULTS_FLAG)
+
+pairs-check:
+	$(PYTHON) scripts/run_pairing.py --self-check $(_DATA_FLAG) $(_RESULTS_FLAG)
 
 fuse:
 	$(_not_yet)
