@@ -97,8 +97,9 @@ class ImageConfig(BaseModel):
     """Image-branch hyperparameters."""
 
     input_size: tuple[int, int] = (224, 224)
-    backbone: str = "resnet50"
-    pretrained: bool = True
+    backbone: str = "cnn4"
+    pretrained: bool = False
+    embedding_dim: int = Field(128, ge=1)
     num_classes: int = Field(4, ge=1)
     batch_size: int = Field(32, ge=1)
     epochs: int = Field(30, ge=1)
@@ -110,13 +111,14 @@ class ImageConfig(BaseModel):
 class AudioConfig(BaseModel):
     """Audio-branch hyperparameters."""
 
-    sample_rate: int = Field(22050, gt=0)
-    n_mels: int = Field(128, ge=1)
-    hop_length: int = Field(512, ge=1)
-    n_fft: int = Field(2048, ge=1)
-    duration_sec: float = Field(5.0, gt=0)
-    backbone: str = "resnet18"
-    pretrained: bool = True
+    sample_rate: int = Field(8000, gt=0)
+    n_mels: int = Field(64, ge=1)
+    hop_length: int = Field(128, ge=1)
+    n_fft: int = Field(512, ge=1)
+    duration_sec: float = Field(4.0, gt=0)
+    backbone: str = "cnn4"
+    pretrained: bool = False
+    embedding_dim: int = Field(128, ge=1)
     num_classes: int = Field(2, ge=1)
     batch_size: int = Field(64, ge=1)
     epochs: int = Field(30, ge=1)

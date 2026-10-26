@@ -88,6 +88,7 @@ def save_checkpoint(
     state: dict[str, Any],
     checkpoint_dir: Path | str,
     epoch: int,
+    filename: str | None = None,
 ) -> Path:
     """
     Save a training checkpoint atomically.
@@ -105,6 +106,8 @@ def save_checkpoint(
         Directory in which to save the checkpoint.  Created if absent.
     epoch:
         Zero-based epoch index that just completed.
+    filename:
+        Optional filename. If not provided, defaults to ``epoch_{epoch:04d}.pt``.
 
     Returns
     -------
@@ -124,7 +127,10 @@ def save_checkpoint(
     ckpt_dir = Path(checkpoint_dir)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-    target = ckpt_dir / f"epoch_{epoch:04d}.pt"
+    if filename is not None:
+        target = ckpt_dir / filename
+    else:
+        target = ckpt_dir / f"epoch_{epoch:04d}.pt"
     tmp = target.with_suffix(".tmp")
 
     torch.save(state, tmp)

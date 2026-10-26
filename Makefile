@@ -71,13 +71,14 @@ pack-data:
 # ---------------------------------------------------------------------------
 # Phase 1+ targets — NOT YET AVAILABLE
 # ---------------------------------------------------------------------------
-_not_yet = @echo NOT YET AVAILABLE: $@ is implemented in a later phase.
-
 train-image:
-	$(_not_yet)
+	$(PYTHON) scripts/train_image.py $(_DATA_FLAG) $(_RESULTS_FLAG)
 
 train-audio:
-	$(_not_yet)
+	$(PYTHON) scripts/train_audio.py $(_DATA_FLAG) $(_RESULTS_FLAG)
+
+evaluate-unimodal:
+	$(PYTHON) scripts/evaluate_unimodal.py $(_DATA_FLAG) $(_RESULTS_FLAG)
 
 pairs:
 	$(_not_yet)

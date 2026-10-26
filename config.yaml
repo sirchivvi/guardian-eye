@@ -43,8 +43,9 @@ datasets:
 # ---------------------------------------------------------------------------
 image:
   input_size: [224, 224]        # [height, width]
-  backbone: "resnet50"
-  pretrained: true
+  backbone: "cnn4"
+  pretrained: false
+  embedding_dim: 128
   num_classes: 4                # human | vehicle | animal | empty
   batch_size: 32
   epochs: 30
@@ -56,13 +57,14 @@ image:
 # Audio branch settings
 # ---------------------------------------------------------------------------
 audio:
-  sample_rate: 22050
-  n_mels: 128
-  hop_length: 512
-  n_fft: 2048
-  duration_sec: 5.0
-  backbone: "resnet18"
-  pretrained: true
+  sample_rate: 8000             # 8 kHz mono per audio pipeline requirement
+  n_mels: 64                    # 64 mel bins
+  hop_length: 128               # hop length 128
+  n_fft: 512                    # n_fft 512 (giving 64 x 251 log-mel)
+  duration_sec: 4.0             # 4.0s = 32000 samples
+  backbone: "cnn4"
+  pretrained: false
+  embedding_dim: 128
   num_classes: 2               # gunshot | background
   batch_size: 64
   epochs: 30
