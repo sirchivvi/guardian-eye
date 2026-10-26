@@ -1,0 +1,79 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "guardian-eye"
+version = "0.1.0"
+description = "Anti-poaching multi-modal (image + audio) risk-assessment system"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "GuardianEye Contributors" }]
+
+dependencies = [
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "torch>=2.3",
+    "torchaudio>=2.3",
+    "scikit-learn>=1.5",
+    "pandas>=2.2",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+guardian-run = "scripts.run:main"
+
+# ---------------------------------------------------------------------------
+# Setuptools — tell it where the package lives
+# ---------------------------------------------------------------------------
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*", "scripts*"]
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+
+# ---------------------------------------------------------------------------
+# Ruff
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # Pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "ANN", # flake8-annotations (type hints)
+    "D",   # pydocstyle
+]
+ignore = [
+    "D100",  # Missing docstring in public module — handled per-file
+    "D104",  # Missing docstring in public package
+    "D203",  # one-blank-line-before-class (conflicts with D211)
+    "D212",  # multi-line-summary-first-line (conflicts with D213)
+    "ANN401",  # Any type allowed in some places
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["ANN", "D"]
+"notebooks/*" = ["ALL"]
+"scripts/*" = ["ANN", "D"]  # scripts are CLI-facing; relaxed doc/annotation rules
+
+[tool.ruff.lint.isort]
+known-first-party = ["src", "scripts"]

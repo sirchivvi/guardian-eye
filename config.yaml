@@ -1,0 +1,121 @@
+# =============================================================================
+# GuardianEye — master experiment configuration
+# All tuneable settings live here.  Override paths with DATA_ROOT / RESULTS_ROOT
+# environment variables or the --data-root / --results-root CLI flags.
+# =============================================================================
+
+project:
+  name: guardian-eye
+  version: "0.1.0"
+
+# ---------------------------------------------------------------------------
+# Paths — overridable via env vars DATA_ROOT and RESULTS_ROOT
+# ---------------------------------------------------------------------------
+paths:
+  data_root: "data"
+  results_root: "results"
+  raw_subdir: "raw"
+  processed_subdir: "processed"
+
+# ---------------------------------------------------------------------------
+# Reproducibility
+# ---------------------------------------------------------------------------
+reproducibility:
+  seeds: [27, 2701, 26009]
+
+# ---------------------------------------------------------------------------
+# Dataset splits  (must sum to 1.0)
+# ---------------------------------------------------------------------------
+splits:
+  train: 0.70
+  val: 0.15
+  test: 0.15
+
+# ---------------------------------------------------------------------------
+# Datasets (directories under data/raw/)
+# ---------------------------------------------------------------------------
+datasets:
+  image: ["birdsai", "cct", "serengeti", "belize", "vietnam"]
+  audio: ["esc50"]
+
+# ---------------------------------------------------------------------------
+# Image branch settings
+# ---------------------------------------------------------------------------
+image:
+  input_size: [224, 224]        # [height, width]
+  backbone: "resnet50"
+  pretrained: true
+  num_classes: 4                # human | vehicle | animal | empty
+  batch_size: 32
+  epochs: 30
+  lr: 1.0e-4
+  weight_decay: 1.0e-4
+  augment: true
+
+# ---------------------------------------------------------------------------
+# Audio branch settings
+# ---------------------------------------------------------------------------
+audio:
+  sample_rate: 22050
+  n_mels: 128
+  hop_length: 512
+  n_fft: 2048
+  duration_sec: 5.0
+  backbone: "resnet18"
+  pretrained: true
+  num_classes: 2               # gunshot | background
+  batch_size: 64
+  epochs: 30
+  lr: 1.0e-4
+  weight_decay: 1.0e-4
+  augment: true
+
+# ---------------------------------------------------------------------------
+# Pairing limits (image–audio synthetic pairs)
+# ---------------------------------------------------------------------------
+pairs:
+  max_pairs_per_split: 10000   # cap to avoid combinatorial explosion
+  min_images_per_class: 50     # minimum images before a class is included
+  cross_split_allowed: false   # NEVER create cross-split pairs
+
+# ---------------------------------------------------------------------------
+# Fusion settings
+# ---------------------------------------------------------------------------
+fusion:
+  method: "late_fusion"        # late_fusion | learned_weighted
+  image_weight: 0.6
+  audio_weight: 0.4
+
+# ---------------------------------------------------------------------------
+# Robustness evaluation
+# ---------------------------------------------------------------------------
+robustness:
+  noise_types: ["gaussian", "salt_pepper", "occlusion"]
+  noise_levels: [0.05, 0.10, 0.20]
+
+# ---------------------------------------------------------------------------
+# Evaluation
+# ---------------------------------------------------------------------------
+evaluation:
+  metrics: ["accuracy", "f1_macro", "roc_auc", "ap"]
+  bootstrap_resamples: 1000
+  confidence_level: 0.95
+
+# ---------------------------------------------------------------------------
+# Latency targets (milliseconds, per-inference, single sample)
+# ---------------------------------------------------------------------------
+latency:
+  image_ms: 100
+  audio_ms: 100
+  fusion_ms: 20
+  total_ms: 250
+
+# ---------------------------------------------------------------------------
+# Smoke test mode — tiny settings, CPU-only, no real data needed
+# ---------------------------------------------------------------------------
+smoke:
+  batch_size: 2
+  epochs: 1
+  max_pairs: 10
+  fixture_images: 8
+  fixture_audio: 8
