@@ -60,7 +60,10 @@ data-check:
 	@$(PYTHON) -c "import pathlib; p = pathlib.Path('data/raw'); print('Checking expected dataset directories...'); [print(f'  [OK]  {p / d}' if (p / d).is_dir() else f'  [!!]  MISSING: {p / d}') for d in ['birdsai', 'cct', 'serengeti', 'belize', 'vietnam', 'esc50']]"
 
 manifest:
-	@$(PYTHON) -c "import pathlib; p = pathlib.Path('data/raw'); files = sorted(str(f) for f in p.rglob('*') if f.is_file() and f.name != '.gitkeep'); print('\n'.join(files) if files else 'No dataset files found.')"
+	$(PYTHON) scripts/build_manifest.py $(_DATA_FLAG) $(_RESULTS_FLAG)
+
+verify-data:
+	$(PYTHON) scripts/verify_data.py $(_DATA_FLAG)
 
 pack-data:
 	$(PYTHON) scripts/pack_data.py $(_DATA_FLAG) $(_RESULTS_FLAG)
