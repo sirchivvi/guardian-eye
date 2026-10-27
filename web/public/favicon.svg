@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="forestGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#76A284" />
+      <stop offset="100%" stop-color="#476953" />
+    </linearGradient>
+    <linearGradient id="warmSun" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FDE68A" />
+      <stop offset="100%" stop-color="#F59E0B" />
+    </linearGradient>
+  </defs>
+  <!-- Rounded background badge -->
+  <rect width="64" height="64" rx="20" fill="#FFF9F0" />
+  <rect x="3" y="3" width="58" height="58" rx="17" fill="url(#forestGrad)" />
+  
+  <!-- Friendly wildlife eye & leaf emblem -->
+  <!-- Leaf outer curve -->
+  <path d="M14 32 C14 20, 24 14, 38 15 C50 16, 52 26, 50 32 C48 38, 40 48, 26 49 C18 49, 14 42, 14 32 Z" fill="#FFF9F0" opacity="0.95"/>
+  <!-- Iris / sun -->
+  <circle cx="32" cy="32" r="10" fill="url(#warmSun)" />
+  <!-- Pupil -->
+  <circle cx="32" cy="32" r="5.5" fill="#3A4D39" />
+  <!-- Cute sparkle -->
+  <circle cx="30" cy="30" r="2" fill="#FFFFFF" />
+  <circle cx="34" cy="34" r="0.8" fill="#FFFFFF" />
+
+  <!-- Little sprout ear -->
+  <path d="M42 16 C45 11, 51 11, 53 14 C54 18, 49 22, 45 21 Z" fill="#E07A5F" />
+</svg>

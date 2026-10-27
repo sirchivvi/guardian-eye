@@ -1,0 +1,4494 @@
+  
+===== .agents\rules\guardian.md =====  
+# GuardianEye — Standing Agent Rules
+
+These rules apply to every phase and every agent or contributor working on
+the GuardianEye project.  Read them before making any change.
+
+---
+
+## 1. Modalities
+
+GuardianEye has exactly **two modalities**: **image** and **audio**.
+
+- Video is handled by decoding frames and routing them through the **image branch**.
+- There is no separate video branch.
+
+---
+
+## 2. Approved technology stack
+
+| Tool | Version constraint |
+|---|---|
+| Python | 3.11 |
+| PyTorch | ≥ 2.3 |
+| torchaudio | ≥ 2.3 |
+| scikit-learn | ≥ 1.5 |
+| pandas | ≥ 2.2 |
+| PyYAML | ≥ 6.0 |
+| Pydantic | ≥ 2.7 |
+| pytest | ≥ 8.2 |
+| Ruff | ≥ 0.4 |
+
+**Ask before adding any dependency not listed above.**
+
+---
+
+## 3. Configuration
+
+- All hyperparameters and filesystem paths **must** be read from `config.yaml`.
+- Never hard-code absolute paths.
+- Path precedence: CLI argument > `DATA_ROOT`/`RESULTS_ROOT` env vars > `config.yaml`.
+- Use `src.config.load_config()` and `src.config.resolve_paths()`.
+
+---
+
+## 4. Phased development
+
+- Work **one phase at a time**.
+- Stop after each phase and provide a summary of:
+  - Files changed or created
+  - Commands to run
+  - Actual test and lint results (or `NOT YET RUN` with explanation)
+- **Never begin the next phase without explicit approval.**
+
+---
+
+## 5. Metrics and results integrity
+
+- **Never invent, fabricate, or estimate metrics.**
+- If data or trained models are unavailable, report exactly:
+  > `NOT YET RUN — <reason>`
+- Do not run evaluations on placeholder or synthetic data and present the
+  numbers as if they reflect real dataset performance.
+
+---
+
+## 6. Dataset split discipline
+
+- Assign **train / val / test splits before creating any image–audio pairs**.
+- **Never create cross-split pairs** (a training image paired with a test
+  audio clip, etc.).
+- Split fractions are defined in `config.yaml`:
+  `train = 0.70`, `val = 0.15`, `test = 0.15`.
+
+---
+
+## 7. Prohibited synthetic data
+
+- **Never synthesise vehicle images.**  Vehicle imagery is scarce; inventing
+  examples would invalidate evaluation results.
+- ESC-50 thunderstorm, wind, and rain clips **remain labelled `background`**
+  with a `noise_tag` of `thunder_wind`.  They are **never relabelled as
+  `gunshot`**.
+
+---
+
+## 8. Dataset access
+
+- **Never download datasets automatically.**
+- Read only from the configured `data/raw/` directory.
+- If a dataset is missing, log a clear warning and continue or stop — never
+  fabricate data.
+
+---
+
+## 9. What must never be committed
+
+| Forbidden | Reason |
+|---|---|
+| Dataset files | Size and licence |
+| Model weights (`.pt`, `.pth`, `.bin`) | Size |
+| `.env` files | Secrets |
+| API keys, tokens, passwords | Security |
+| Generated archives (`*.tar.gz`) | Size |
+
+---
+
+## 10. Code quality
+
+Every public function and class **must** have:
+- **Type hints** on all arguments and the return value.
+- A **docstring** (Google or NumPy style).
+- At least one **unit test** exercising the main behaviour.
+- **Logging** (via `logging`) instead of `print()` in application code.
+
+---
+
+## 11. Compute environment
+
+- Local development (Windows laptop, CPU-only) supports tests, linting,
+  configuration validation, and smoke tests only.
+- All substantive model training and evaluation runs on **Google Colab** or
+  **Kaggle**.
+- Tests must **never require CUDA**.  Use `monkeypatch` or conditional skips
+  for GPU-specific behaviour.
+
+---
+
+## 12. Checkpointing
+
+All training modules **must** use `src.checkpoint`:
+- Call `save_checkpoint()` after every epoch.
+- Call `find_latest_checkpoint()` on startup to resume automatically.
+- Never start training without checking for an existing checkpoint.
+- Checkpoint state must include: `model_state`, `optimizer_state`, `epoch`,
+  `config`, `seed`, and optionally `scheduler_state` / `scaler_state`.
+
+---
+
+## 13. Destructive or elevated commands
+
+**Always ask before executing** commands that:
+- Delete files or directories
+- Install system packages (outside pip)
+- Modify the Git history
+
+---
+
+## 14. Academic scope disclaimer
+
+GuardianEye is an **academic proof of concept**.  The public datasets used do
+not contain real, time-aligned poaching incidents.  Fusion evaluation relies
+on **synthetic image–audio pairs**.  Results must not be presented as a
+validated field alert system.
+  
+===== config.yaml =====  
+# =============================================================================
+# GuardianEye — master experiment configuration
+# All tuneable settings live here.  Override paths with DATA_ROOT / RESULTS_ROOT
+# environment variables or the --data-root / --results-root CLI flags.
+# =============================================================================
+
+project:
+  name: guardian-eye
+  version: "0.1.0"
+
+# ---------------------------------------------------------------------------
+# Paths — overridable via env vars DATA_ROOT and RESULTS_ROOT
+# ---------------------------------------------------------------------------
+paths:
+  data_root: "data"
+  results_root: "results"
+  raw_subdir: "raw"
+  processed_subdir: "processed"
+
+# ---------------------------------------------------------------------------
+# Reproducibility
+# ---------------------------------------------------------------------------
+reproducibility:
+  seeds: [27, 2701, 26009]
+
+# ---------------------------------------------------------------------------
+# Dataset splits  (must sum to 1.0)
+# ---------------------------------------------------------------------------
+splits:
+  train: 0.70
+  val: 0.15
+  test: 0.15
+
+# ---------------------------------------------------------------------------
+# Datasets (directories under data/raw/)
+# ---------------------------------------------------------------------------
+datasets:
+  image: ["birdsai", "cct", "serengeti", "belize", "vietnam"]
+  audio: ["esc50"]
+
+# ---------------------------------------------------------------------------
+# Image branch settings
+# ---------------------------------------------------------------------------
+image:
+  input_size: [224, 224]        # [height, width]
+  backbone: "cnn4"
+  pretrained: false
+  embedding_dim: 128
+  num_classes: 4                # human | vehicle | animal | empty
+  batch_size: 32
+  epochs: 30
+  lr: 1.0e-4
+  weight_decay: 1.0e-4
+  augment: true
+
+# ---------------------------------------------------------------------------
+# Audio branch settings
+# ---------------------------------------------------------------------------
+audio:
+  sample_rate: 8000             # 8 kHz mono per audio pipeline requirement
+  n_mels: 64                    # 64 mel bins
+  hop_length: 128               # hop length 128
+  n_fft: 512                    # n_fft 512 (giving 64 x 251 log-mel)
+  duration_sec: 4.0             # 4.0s = 32000 samples
+  backbone: "cnn4"
+  pretrained: false
+  embedding_dim: 128
+  num_classes: 2               # gunshot | background
+  batch_size: 64
+  epochs: 30
+  lr: 1.0e-4
+  weight_decay: 1.0e-4
+  augment: true
+
+# ---------------------------------------------------------------------------
+# Pairing limits (image–audio synthetic pairs)
+# ---------------------------------------------------------------------------
+pairs:
+  max_pairs_per_split: 10000   # cap to avoid combinatorial explosion
+  max_pairs_per_scenario: 1500 # maximum pairs generated per scenario
+  min_images_per_class: 50     # minimum images before a class is included
+  cross_split_allowed: false   # NEVER create cross-split pairs
+
+# ---------------------------------------------------------------------------
+# Fusion settings
+# ---------------------------------------------------------------------------
+fusion:
+  method: "late_fusion"        # late_fusion | learned_weighted
+  image_weight: 0.6
+  audio_weight: 0.4
+
+# ---------------------------------------------------------------------------
+# Robustness evaluation
+# ---------------------------------------------------------------------------
+robustness:
+  noise_types: ["gaussian", "salt_pepper", "occlusion"]
+  noise_levels: [0.05, 0.10, 0.20]
+
+# ---------------------------------------------------------------------------
+# Evaluation
+# ---------------------------------------------------------------------------
+evaluation:
+  metrics: ["accuracy", "f1_macro", "roc_auc", "ap"]
+  bootstrap_resamples: 1000
+  confidence_level: 0.95
+
+# ---------------------------------------------------------------------------
+# Latency targets (milliseconds, per-inference, single sample)
+# ---------------------------------------------------------------------------
+latency:
+  image_ms: 100
+  audio_ms: 100
+  fusion_ms: 20
+  total_ms: 250
+
+# ---------------------------------------------------------------------------
+# BDA (Big Data Analytics) settings
+# ---------------------------------------------------------------------------
+bda:
+  engine: "auto"                # auto | hadoop_streaming | python_streaming_local
+  self_check: false             # run self-check on fixture data
+
+# ---------------------------------------------------------------------------
+# Smoke test mode — tiny settings, CPU-only, no real data needed
+# ---------------------------------------------------------------------------
+smoke:
+  batch_size: 2
+  epochs: 1
+  max_pairs: 10
+  fixture_images: 8
+  fixture_audio: 8
+  
+===== docs\bda.md =====  
+# Big Data Analytics (BDA) Module — GuardianEye
+
+> **Design and implementation documentation for Phase 3 Big Data Analytics.**
+
+The GuardianEye BDA module (`src/bda/`) provides scalable data-aggregation pipelines designed for large-scale wildlife monitoring and sensor networks. It implements Hadoop-Streaming-compatible MapReduce jobs, an automated local streaming engine for local and CI execution, optional PySpark pipelines, Hive DDL schemas, and verification self-checks.
+
+---
+
+## 1. Architecture Overview
+
+In an anti-poaching sensor deployment, acoustic sensors and camera traps generate high-volume distributed logs and manifests. The BDA architecture aggregates raw metadata, scenario combinations, and evaluation metrics across seeds and folds without requiring manual spreadsheet manipulation or single-threaded loops.
+
+```
+                    ┌───────────────────────────────┐
+                    │ Raw Manifest / Scenarios /    │
+                    │ Evaluation Metrics            │
+                    └───────────────┬───────────────┘
+                                    │
+                                    ▼
+                      Hadoop Streaming / Local Sort
+                    ┌───────────────────────────────┐
+                    │ Mapper: emits key-value pairs │
+                    │ Sort: groups keys (composite) │
+                    │ Reducer: aggregation / stats  │
+                    └───────────────┬───────────────┘
+                                    │
+            ┌───────────────────────┴───────────────────────┐
+            ▼                                               ▼
+┌───────────────────────┐                       ┌───────────────────────┐
+│ CSV Aggregations:     │                       │ Optional Spark /      │
+│ - class_counts.csv    │                       │ Parquet Ingestion     │
+│ - scenario_counts.csv │                       │ - manifest.parquet    │
+│ - metric_summary.csv  │                       │ - class_weights.pq    │
+│ - bda_status.json     │                       │ - audio_features.pq   │
+└───────────────────────┘                       └───────────────────────┘
+```
+
+---
+
+## 2. Hadoop Streaming MapReduce Jobs
+
+Each mapper and reducer is executable as a standalone module via stdin/stdout, making it directly consumable by the standard `hadoop jar hadoop-streaming-*.jar`:
+
+### 2.1 Class Counts Pipeline
+- **Mapper** (`src/bda/mapper_class.py`):
+  Reads manifest CSV lines (`path,modality,source,label,...`) and emits:
+  ```
+  modality\tsource\tlabel \t 1
+  ```
+  Missing or empty label fields are skipped (never converted into negative/background examples).
+- **Reducer** (`src/bda/reducer_sum.py`):
+  Groups pre-sorted keys and sums the integer counts, producing:
+  ```
+  modality\tsource\tlabel\t<count>
+  ```
+
+### 2.2 Scenario Counts Pipeline
+- **Mapper** (`src/bda/mapper_scenario.py`):
+  Reads pairing CSV lines (`split,scenario,suspicious,risk,...`) and emits:
+  ```
+  split\tscenario\tsuspicious\trisk \t 1
+  ```
+- **Reducer** (`src/bda/reducer_sum.py`):
+  Aggregates counts per scenario tuple, producing:
+  ```
+  split\tscenario\tsuspicious\trisk\t<count>
+  ```
+
+### 2.3 Evaluation Metric Summary Pipeline
+- **Mapper** (`src/bda/mapper_metric.py`):
+  Reads JSON metric records (`{"method": ..., "condition": ..., "metric": ..., "value": ...}`) and emits:
+  ```
+  method\tcondition\tmetric \t <value>
+  ```
+  Undefined metrics (`value: null`, zero-denominator situations) are omitted.
+- **Reducer** (`src/bda/reducer_metric.py`):
+  Computes sample statistics for each key:
+  - $n$: sample count
+  - $\text{mean} = \frac{1}{n} \sum x_i$
+  - $\text{sample\_std} = \sqrt{\frac{1}{n-1} \sum (x_i - \text{mean})^2}$ when $n \ge 2$; left empty when $n < 2$.
+
+---
+
+## 3. Streaming Engine & Execution Detection
+
+`src/bda/stream.py` provides an execution engine that automatically chooses between Hadoop Streaming and a local Python fallback:
+
+1. **Hadoop Detection**: Checks if `HADOOP_HOME` is set, `hadoop` binary exists on PATH, and `hadoop-streaming-*.jar` is located.
+2. **Local Fallback (`python_streaming_local`)**: Simulates the MapReduce pipeline by executing the mapper, sorting key-value pairs in memory, and piping them into the reducer.
+3. **Engine Logging**: The engine name (`hadoop_streaming` or `python_streaming_local`) is recorded in logs and in `bda_status.json`.
+
+---
+
+## 4. Optional PySpark Jobs
+
+`src/bda/spark_jobs.py` provides DataFrame transformations for larger scale datasets:
+
+1. **`manifest_to_parquet`**: Ingests manifest CSV into compressed Parquet.
+2. **`compute_class_weights`**: Calculates balanced class weights per modality:
+   $$w_c = \frac{N}{k \cdot n_c}$$
+   Guarded against division by zero if $k=0$ or $n_c=0$.
+3. **`compute_audio_features`**: Uses a `@pandas_udf` to compute 64-band log-mel energy summaries across worker nodes using `torchaudio`.
+
+**Honesty Policy on PySpark**:
+If `pyspark` is not installed, all Spark routines gracefully return `{"status": "NOT YET RUN", "reason": "pyspark not installed"}`. The system never fakes Spark completion.
+
+---
+
+## 5. Hive DDL Schemas
+
+`src/bda/schema.hql` provides Hive external table definitions for warehouse analytics:
+- `manifest`: external table pointing to raw manifest CSV.
+- `class_counts`: table for class distribution summaries.
+- `scenario_counts`: table for synthetic pair scenario distributions.
+- `metric_summary`: table for multi-seed performance statistics.
+- `manifest_parquet`: Parquet representation of the manifest.
+- `class_weights`: Parquet table of computed inverse-frequency weights.
+- `audio_features`: Parquet table with 64-band log-mel feature arrays.
+
+*Note: `schema.hql` serves as schema documentation and is not executed in local pipelines.*
+
+---
+
+## 6. CLI and Makefile Integration
+
+### Run BDA Self-Check (on built-in fixtures)
+```bash
+make bda-check
+# or
+python scripts/run_bda.py --self-check
+```
+Validates mapper and reducer pipelines against golden fixtures (`tests/fixtures/bda/`) with tolerance-based numeric comparison.
+
+### Run BDA on Project Manifests
+```bash
+make bda
+# or
+python scripts/run_bda.py --mode all
+```
+Modes available:
+- `--mode class_counts`: Run class counts job.
+- `--mode scenarios`: Run scenario pairing distribution job.
+- `--mode metrics`: Run evaluation metrics summary job.
+- `--mode spark`: Run PySpark jobs (if installed).
+- `--mode all`: Run all streaming and Spark jobs.
+
+### Status Tracking
+All executions write atomic status output to `results/bda/bda_status.json`. If inputs are unpopulated (e.g. before downloading real raw data), the pipeline exits cleanly with `NOT YET RUN`.
+  
+===== docs\GuardianEye_Build_Guide_v2.md =====  
+# GuardianEye Build Guide v2 (matches CA4 + BDA reports)
+
+This replaces the earlier guide. It follows your latest scope: **two modalities** (video becomes frames inside the image branch), the five datasets from CA2/CA3/CA4, early/intermediate/late fusion, the `NOT YET RUN` honesty policy, the Hadoop-style counting jobs, and a path to GitHub and a global deployment.
+
+Contents
+1. What changed since v1
+2. What you need
+3. Antigravity: how to use it (beginner section)
+4. Antigravity vs VS Code
+5. GitHub setup, step by step
+6. Data download, step by step (the five real datasets)
+7. Rules file to paste into Antigravity
+8. MASTER PROMPT (paste into Antigravity)
+9. DASHBOARD + DEPLOY PROMPT
+10. Global deployment, step by step
+11. Consistency flags in your reports
+
+---
+
+## 1. What changed since v1
+
+| Item | v1 guide | Now (CA4 + BDA) |
+|---|---|---|
+| Modalities | Video, image, audio | **Image + audio.** Video is decoded to frames and enters the image branch |
+| Image data | Snapshot Serengeti, CCT, LILA, VisDrone, HIT-UAV | **BIRDSAI, Caltech Camera Traps, Snapshot Serengeti** |
+| Audio data | UrbanSound8K, FSD50K, AudioSet, RFCx | **Belize gunshot set (Katsis), Vietnam Chu Mom Ray set (Vu), ESC-50 thunder/wind/rain only as a noise tag** |
+| Image classes | person, vehicle, animal | **human, vehicle, animal, empty** |
+| Audio classes | gunshot, chainsaw, engine, other | **gunshot vs background** (thunder_wind is a tag, not a class) |
+| Models | YOLO + PANNs | **Small CNN image classifier + log-mel CNN audio classifier** (pretrained backbones become an optional extra) |
+| Fusion | Noisy-OR + logistic regression | **Early, intermediate (4 heads) and late (calibrated rule + weighted), plus image-only and audio-only baselines** |
+| Results policy | Generate metrics | **Anything not produced by code is written NOT YET RUN** |
+| Big data | Not included | **src/bda** streaming mapper/reducer jobs, optional Spark and Hive, and a Hadoop vs Spark case study |
+
+---
+
+## 2. What you need
+
+### Accounts
+| Account | Why |
+|---|---|
+| Google account | Sign in to Antigravity (Pro), use Colab |
+| GitHub | Repo, CI, and Vercel deploys |
+| Hugging Face | Host model weights and the API (free Docker Space) |
+| Vercel | Dashboard hosting |
+| Mendeley / Zenodo | Dataset downloads (free; Mendeley may ask you to sign in) |
+
+### Software on your laptop
+- Python 3.11, Git, **GitHub CLI (`gh`)**, Node.js 20+, FFmpeg
+- Docker Desktop (for the API image), Vercel CLI (`npm i -g vercel`), Hugging Face CLI (`pip install huggingface_hub`)
+- Optional for the BDA module: Java 11 or 17 and `pyspark` (Hadoop itself is not required; your code already falls back to local streaming)
+
+Check everything:
+~~~bash
+python --version && git --version && gh --version && node --version && ffmpeg -version | head -1 && docker --version
+~~~
+
+### Hardware
+16 GB RAM is comfortable. Free disk: Belize audio is large in file count (35,000+ small WAVs), plus image subsets; plan for about 30 to 60 GB. Training the small CNNs works on CPU for smoke tests; use a free Colab GPU for full runs.
+
+---
+
+## 3. Antigravity: how to use it (beginner section)
+
+Antigravity is Google's agent-first coding environment, launched in November 2025. It is built on a heavily modified VS Code fork and has two main views: the familiar **Editor** and the **Agent Manager** (a mission-control screen where you give tasks to agents and review results). Details change quickly, so if a menu looks different in your version, trust your screen and the docs at antigravity.google/docs.
+
+### 3.1 Install and first launch
+1. Download from antigravity.google/download (Windows .exe, macOS .dmg, Linux .deb/.rpm).
+2. At setup, you can **import settings and extensions from VS Code or Cursor**, or start fresh.
+3. Sign in with the Google account that holds your Pro plan.
+4. Open your project folder (`File > Open Folder`), not a single file. The agent works on the open workspace.
+
+### 3.2 The two views
+| View | Use it for |
+|---|---|
+| Agent Manager | Start tasks, run several agents in parallel, read their plans and results (called Artifacts), approve or comment |
+| Editor | Read and edit code yourself, run the terminal, use Git, use extensions |
+Use the switch button in the Agent Manager to jump to the Editor and back.
+
+### 3.3 Modes: Fast vs Planning
+- **Planning**: the agent writes an implementation plan first, then builds. Use this for every GuardianEye phase.
+- **Fast**: quick edits and small fixes (rename a variable, fix a typo, add a test).
+
+### 3.4 Artifacts (how you review the agent)
+Agents produce reviewable artifacts: a plan, a task list, a walkthrough of what changed, screenshots and browser recordings. **Read the plan before approving.** If something is wrong, comment on the plan and ask for a revision instead of letting it build the wrong thing.
+
+### 3.5 Safety settings (important, set these first)
+Agents can run terminal commands and edit files. In Settings, find the agent permissions / terminal execution options and:
+- Keep terminal commands on **ask before running** (review-driven) until you trust the setup.
+- Never approve commands that delete folders, reformat disks, or touch paths outside the project.
+- Keep the browser agent on an allowlist if the setting is offered.
+- Check **Settings > AI Credits** (or the plan page) to see how much of your Pro allowance you use; heavy runs on big models drain it faster. Use Fast mode for small edits.
+
+### 3.6 Rules, workflows, skills (customising the agent)
+| Thing | What it is | Where it lives |
+|---|---|---|
+| Rules | Standing instructions the agent always follows | Global: `~/.gemini/GEMINI.md`. Workspace: `.agents/rules/` (older versions: `.agent/rules/`) |
+| Workflows | Saved step-by-step prompts you trigger on demand with `/name` | Workspace: `.agents/workflows/` (older: `.agent/workflows/`) |
+| Skills | Folders with a `SKILL.md` the agent loads when relevant | Workspace: `.agents/skills/<name>/SKILL.md` |
+| MCP servers | Connections to outside tools | Agent panel `...` menu > MCP Servers > View raw config (`mcp_config.json`) |
+Each Rules or Workflows file is limited to **12,000 characters**. Section 7 gives you a ready rules file. Your version may also offer slash commands such as `/plan` and `/browser`; use them if they appear.
+
+### 3.7 Extensions and tools to install
+Antigravity runs most VS Code extensions. Search by name in the Extensions panel; if one is missing from its marketplace, skip it or install a `.vsix` file manually.
+
+| Install | Why |
+|---|---|
+| Python + Pylance | Language support |
+| Jupyter | Run notebooks |
+| Ruff | Linting and formatting for Python |
+| YAML | Edit `config.yaml` safely |
+| Docker | Build and inspect the API image |
+| ESLint, Prettier, Tailwind CSS IntelliSense | Dashboard code |
+| Markdown Preview Mermaid Support | View architecture diagrams |
+| GitLens (optional) | Git history |
+
+**Plugins/MCP that are actually worth it:** you do not need any MCP server to start. The agent can run `gh` (GitHub CLI), `git`, `docker`, `vercel` and `hf` in the terminal. If you want one extra, add a documentation lookup server from the MCP store (for example a library-docs one) so the agent reads current PyTorch/FastAPI docs instead of guessing. Skip anything that asks for broad account access.
+
+### 3.8 A good daily workflow
+1. Create a branch for the phase (`git switch -c phase-1-manifest`).
+2. Agent Manager > new task > paste the phase text > mode **Planning**.
+3. Read the plan; comment; approve.
+4. Let it build. When it stops, read the walkthrough artifact.
+5. In the Editor, run `make test` and `make lint` yourself.
+6. Commit, push, open a pull request, merge when CI is green.
+7. Start the next phase in a **new conversation** (long chats get confused; the rules file keeps the context).
+
+### 3.9 Common beginner mistakes
+- Pasting the entire project prompt and saying "build everything": it will make a mess. Run one phase at a time.
+- Approving the plan without reading it.
+- Letting the agent download datasets automatically: do the downloads yourself (Section 6) and let the agent only read from `data/raw`.
+- Committing data or weights to GitHub.
+- Trusting numbers the agent writes in the report. Every number must come from a results file your code produced.
+
+---
+
+## 4. Antigravity vs VS Code
+
+Antigravity is a VS Code fork, so the editor feels the same. The question is really: agent-first workflow, or classic editor with an assistant?
+
+| Criterion | Antigravity (you have Pro) | Plain VS Code (+ Copilot or another assistant) |
+|---|---|---|
+| Multi-step builds from a prompt | Strong: plans, parallel agents, reviewable artifacts | Good with agent modes, less polished orchestration |
+| Testing a web dashboard | Built-in browser agent can open and check the app | Manual, or add Playwright yourself |
+| Stability and maturity | Newer; rough edges and limits reported | Very stable |
+| Extensions | Most VS Code extensions work; marketplace can differ | Full Microsoft marketplace |
+| Cost | Already paid (Pro); watch AI credits | Extra subscription for a comparable assistant |
+| Notebooks and remote dev | Works, same engine | Works, plus the widest ecosystem |
+| Learning curve | Extra concepts (Manager, artifacts, rules) | Familiar |
+
+**Recommendation:** use **Antigravity as your main tool** since you already have Pro and this project is multi-phase. Keep plain VS Code installed as a fallback for anything that misbehaves (it opens the same folder and the same Git repo). You do not need to choose; the repo is the source of truth.
+
+---
+
+## 5. GitHub setup, step by step
+
+~~~bash
+# 1. Create the project and repo
+mkdir guardian-eye && cd guardian-eye
+git init -b main
+gh auth login                      # choose GitHub.com, HTTPS, login via browser
+gh repo create guardian-eye --private --source=. --remote=origin
+
+# 2. First files
+printf "data/raw/\ndata/processed/\nresults/runs/\n*.pt\n*.pth\n*.ckpt\n.env\n__pycache__/\n.venv/\nnode_modules/\n.next/\nstorage/\n" > .gitignore
+echo "# GuardianEye" > README.md
+git add . && git commit -m "chore: initial commit"
+git push -u origin main
+~~~
+
+Rules for the repo:
+- **Never commit** datasets, model weights, `.env`, or API keys. Weights go to the Hugging Face Hub; datasets are downloaded by each person with the steps in Section 6.
+- Work on branches: `phase-0-scaffold`, `phase-1-manifest`, and so on. Open a pull request per phase: `gh pr create --fill`.
+- Add teammates: `gh repo` settings > Collaborators (or `gh api -X PUT repos/<you>/guardian-eye/collaborators/<username>`).
+- Protect `main` (require the CI check) once CI exists.
+- Keep it **private** until submission; make it public (or add the examiner) only after you have checked dataset licences and removed anything sensitive.
+
+CI file (the agent will create it in Phase 0): `.github/workflows/ci.yml` running `ruff check`, `pytest -q` on Python 3.11 for every push and pull request.
+
+Releases: tag when a phase is done (`git tag v0.1-phase1 && git push --tags`), and tag `v1.0-submission` for the final report.
+
+---
+
+## 6. Data download, step by step (the five datasets)
+
+Create the folders:
+~~~bash
+mkdir -p data/raw/{birdsai,cct,serengeti,belize,vietnam,esc50} data/processed results
+~~~
+Do the downloads yourself. The pipeline then reads only from `data/raw/`.
+
+### 6.1 BIRDSAI (thermal aerial, image branch)
+1. Open https://lila.science and find **BIRDSAI**.
+2. Download the **real** training and test archives (frames or videos plus annotation files). Start with real data; the synthetic part is optional.
+3. Unzip into `data/raw/birdsai/`.
+4. Annotations are MOT-style rows; per your CA4 mapping, class code **1 = human**, **0 = animal**, and a frame with no box is **empty**. If a frame has both, store it as human and write the manifest note `human_and_animal_boxes`.
+5. If you get videos, decode them to frames with FFmpeg (1 frame per second is enough):
+~~~bash
+mkdir -p data/raw/birdsai/frames
+ffmpeg -i video.mp4 -vf fps=1 data/raw/birdsai/frames/video_%05d.jpg
+~~~
+View label: `aerial_thermal`.
+
+### 6.2 Caltech Camera Traps (ground camera traps)
+1. On https://lila.science open **Caltech Camera Traps**. Use the benchmark subset (CCT20); its images are already downsized to 1024 pixels on a side, which saves a lot of space.
+2. Download the metadata JSON (COCO Camera Traps format) first; it is small.
+3. Download only a sample of images (a few thousand, balanced across empty, animal, any human or vehicle), using the base URL listed on the dataset page for your preferred cloud (GCP, Azure or AWS). The LILA collection is also mirrored as a public bucket on Source Cooperative, which you can browse without an account:
+~~~bash
+pip install awscli
+aws s3 ls --no-sign-request s3://us-west-2.opendata.source.coop/agentmorris/lila-wildlife/
+~~~
+4. Arrange images in class folders for the pipeline: `data/raw/cct/{human,vehicle,animal,empty}/...`. Many CCT images are animals or empty; humans and vehicles are rare, so keep every one you find.
+View label: `camera_trap`.
+
+### 6.3 Snapshot Serengeti (ground camera traps)
+1. On https://lila.science open **Snapshot Serengeti**. The full archive is terabyte-scale: **do not download it all.**
+2. Download the metadata files, pick a sample (for example 5,000 to 10,000 images, with plenty of blank frames), and download only those image files.
+3. Arrange as `data/raw/serengeti/{human,vehicle,animal,empty}/...` (humans are scarce here; some seasons contain a few).
+View label: `camera_trap`.
+
+### 6.4 Belize gunshot set (primary audio)
+1. Open DOI **10.17632/x48cwz364j** (Mendeley Data: "Tropical forest gunshot classification training audio dataset", version 3).
+2. Download the dataset (sign in to Mendeley if asked) and unzip into `data/raw/belize/`.
+3. Structure: `Training data/` and `Validation data/`, each with `Gunshot/` and `Background/`. Files are WAV, 4.09 seconds, 8 kHz. The collection has 749 gunshot files and over 35,000 background files.
+4. The authors split by time (first 80% of recording period vs last 20%) to avoid leakage. Your CA4 plan re-splits by seed after building the manifest; keep the original folder name in the manifest as a column so you can still compare with the authors' split.
+
+### 6.5 Vietnam Chu Mom Ray set (second site)
+1. Open DOI **10.5281/zenodo.13893977** (Zenodo).
+2. Download the files listed on the record and unzip into `data/raw/vietnam/`.
+3. Inspect what is inside: the BDA report says audio and spectrogram images are provided. Your audio pipeline needs **audio files**; if the record has labelled audio, use those, and ignore the spectrogram images. If any part is only spectrograms, write that in the limitations section instead of guessing.
+4. Resample to the same 8 kHz and 4.0 s windows as Belize.
+Useful fact for your report: Vu et al. report that models trained on their data generalised poorly to the Belize set (F1 about 0.52), which supports your cross-site test.
+
+### 6.6 ESC-50 (thunder, wind, rain: noise tag only)
+~~~bash
+cd data/raw/esc50
+wget https://github.com/karolpiczak/ESC-50/archive/master.zip
+unzip master.zip
+~~~
+Keep only the `thunderstorm`, `wind` and `rain` categories (use `meta/esc50.csv`). Tag them `noise_tag = thunder_wind`. They are **never relabelled as gunshots**, and Belize/Vietnam background is never relabelled as thunder.
+
+### 6.7 Verify before you train
+~~~bash
+du -sh data/raw/*
+find data/raw -type f | wc -l
+python scripts/verify_data.py        # created in Phase 1: counts files per dataset and prints PASS/FAIL
+~~~
+If a dataset folder is empty, the report cells stay **NOT YET RUN**. That is the correct behaviour; it is exactly what happened in CA4.
+
+### 6.8 Class and tag mapping
+| Branch | Label | Sources |
+|---|---|---|
+| Image | human | BIRDSAI code 1; CCT/Serengeti human folders |
+| Image | vehicle | CCT/Serengeti vehicle folders only (never invented) |
+| Image | animal | BIRDSAI code 0; CCT/Serengeti animal folders |
+| Image | empty | Frames with no box or empty folders |
+| Audio | gunshot | Belize Gunshot; Vietnam gunshot |
+| Audio | background | Belize Background; Vietnam background; ESC-50 thunder/wind/rain (with noise tag) |
+
+---
+
+## 7. Rules file for Antigravity
+
+Create `.agents/rules/guardian.md` (or `.agent/rules/` if that is what your version shows). Keep it under 12,000 characters. Paste:
+
+~~~markdown
+# GuardianEye project rules
+- Project: multimodal wildlife poaching detection (image branch + audio branch + fusion). Video is decoded to frames and handled by the image branch. There is no third modality.
+- Python 3.11, PyTorch, torchaudio, scikit-learn, pandas, pyyaml, pytest, ruff. FastAPI for the API. Ask before adding any other dependency.
+- All hyperparameters live in config.yaml. No hard-coded paths or magic numbers.
+- Work one phase at a time. Write a plan first. Stop after each phase and summarise what changed, how to run it, and which tests passed.
+- NEVER invent results. Every number in docs or reports must come from a file written by the code under results/. If a dataset or result is missing, write "NOT YET RUN" with the reason, never an estimate.
+- Splits are assigned BEFORE pairing. Pairs are built only inside one split. Fixed seeds. Never split audio or images randomly across sites if a site key exists.
+- Vehicle images are never synthesised. If the vehicle pool is empty, log built count 0.
+- Thunder/wind clips are accepted only when tagged thunder_wind (from ESC-50). Never relabel background as thunder, never relabel thunder as gunshot.
+- Do not download datasets. Read only from data/raw. If missing, fail with a clear message naming the dataset and the section of the guide.
+- Never commit data, weights, .env or secrets. Weights go to the Hugging Face Hub.
+- Type hints, docstrings on public functions, logging not print, small functions, tests for every module.
+- Do not try to identify real people in images. "human" is only a class label.
+- Ask me before running any command that deletes files or installs system packages.
+~~~
+
+---
+
+## 8. MASTER PROMPT (paste into Antigravity, mode: Planning)
+
+````text
+ROLE
+You are a senior ML engineer. Build "GuardianEye", an academic proof of concept that fuses an image branch and an audio branch to flag possible wildlife poaching. Follow the repo rules file. Work in the phases below, one at a time. For each phase: write a plan, implement, run tests, then STOP and summarise. Do not start the next phase until I say "proceed".
+
+SCOPE (fixed)
+- Two modalities only. Video is decoded to frames (1 fps default) and goes into the image branch. No temporal model.
+- Image classes: human, vehicle, animal, empty. Image "view" column: aerial_thermal (BIRDSAI) or camera_trap (Caltech Camera Traps, Snapshot Serengeti).
+- Audio classes: background, gunshot. Extra column noise_tag: thunder_wind (from ESC-50 thunderstorm/wind/rain only) or not_thunder_wind. Thunder/wind clips are background, held out of audio training, but still scored so fusion can use them.
+- Suspicious = 1 only when image label in {human, vehicle} AND audio label = gunshot. Risk tiers: HIGH = both strong indicators; MEDIUM = exactly one strong indicator (human or vehicle with background; animal with gunshot); LOW = neither (animal+background, empty+background, empty+thunder_wind).
+- Public data has no real poaching incidents and no time-aligned audio+image pairs, so fusion is evaluated on SYNTHETIC pairs. State this in every report and in the API docs.
+
+DATA (already downloaded by me; paths in config.yaml; do not download anything)
+data/raw/birdsai (MOT-style annotations: class code 1 = human, 0 = animal; frame with no box = empty; both = human with note "human_and_animal_boxes")
+data/raw/cct and data/raw/serengeti (class folders human/vehicle/animal/empty)
+data/raw/belize (Training data / Validation data, each with Gunshot and Background; WAV, 4.09 s, 8 kHz)
+data/raw/vietnam (Chu Mom Ray recordings; use audio files only)
+data/raw/esc50 (thunderstorm, wind, rain only, as noise tag)
+
+CONFIG (config.yaml, all values read from here)
+seeds: [27, 2701, 26009]; split train/val/test 0.7/0.15/0.15
+image: classes [human, vehicle, animal, empty]; size 128; epochs 8; lr 0.001; embedding 128; augment random crop, brightness scale, Gaussian blur (training split only)
+audio: classes [background, gunshot]; sample_rate 8000; clip_seconds 4.0; n_mels 64; n_fft 512; hop 128; n_mfcc 20; epochs 8; lr 0.001; 2 time masks width 16; 2 frequency masks width 8 (unimodal training only)
+pairing: max_pairs_per_scenario 200; generator seed = experiment seed + 1 (train), +2 (val), +3 (test)
+early_fusion: image_pool 8; dropout_prob 0.15; logistic C 1.0
+late_fusion: weight_step 0.05; threshold_step 0.05; conservative_tau_delta 0.15; tau_cap 0.95
+robustness: noise_snr_db 5; blur_radius 2.0; brightness_factor 0.3
+bootstrap_resamples 1000
+latency: events 10; repeats 3; target_seconds 5
+
+REPO LAYOUT
+guardian-eye/
+  README.md  pyproject.toml  Makefile  config.yaml  .env.example  Dockerfile
+  .github/workflows/ci.yml
+  scripts/ (verify_data.py, build_manifest.py, run_all.py)
+  src/
+    manifest.py splits.py decisions.py models.py
+    image/ (dataset.py, train.py, evaluate.py)
+    audio/ (features.py, dataset.py, train.py, evaluate.py)
+    pairing.py
+    fusion/ (early.py, intermediate.py, late.py, baselines.py, calibrate.py)
+    evaluation/ (metrics.py, robustness.py, latency.py, bootstrap.py, failures.py)
+    bda/ (mapper_class.py, reducer_sum.py, mapper_scenario.py, mapper_metric.py, reducer_metric.py, stream.py, spark_jobs.py, schema.hql)
+    api/ (main.py, routes.py, schemas.py, storage.py)
+  tests/  results/  docs/  notebooks/ (thin Colab wrappers)
+
+PHASE 0: scaffold
+Create the layout, pyproject, Makefile (setup, data-check, manifest, train-image, train-audio, pairs, fuse, evaluate, bda, serve, test, lint), config.yaml with the values above, a config loader (pydantic), logging, and the CI workflow (ruff + pytest on Python 3.11). Implement src/decisions.py: suspicious(image_label, audio_label) and risk(image_label, audio_label) exactly as in SCOPE, with unit tests for all seven scenarios below.
+Seven scenarios (image, audio, noise_tag -> suspicious, risk): human_gunshot (human, gunshot, any -> 1, high); vehicle_gunshot (vehicle, gunshot, any -> 1, high); animal_gunshot (animal, gunshot, any -> 0, medium); human_background (human, background, not_thunder_wind -> 0, medium); animal_background (animal, background, not_thunder_wind -> 0, low); empty_background (empty, background, not_thunder_wind -> 0, low); empty_thunder (empty, background, thunder_wind -> 0, low). Vehicle with ordinary background is also medium.
+Acceptance: make test and make lint pass; CI green.
+
+PHASE 1: manifest and splits
+build_manifest.py scans data/raw and writes one manifest (path, modality, source, label, view, site_or_device if known, noise_tag, original_split, split, notes). Write results/runs/seed_<n>/manifest/manifest_status.json with status, image count, audio count, rows, unmapped count. If no files are found, status = "NOT YET RUN" with the reason; do not crash and do not fabricate rows.
+Stratify splits by modality, source, label and noise_tag using the seed and fractions. Provide scripts/verify_data.py (counts and opens 20 random files per dataset; PASS/FAIL table).
+Acceptance: tests with a tiny fixture folder; no row appears in two splits; empty-data case produces the NOT YET RUN status.
+
+PHASE 2: unimodal models
+ImageEncoder: four conv blocks, linear head over 4 classes, 128-d penultimate embedding. Class weights = inverse frequency inside cross-entropy; a class with no training rows gets weight 0. Audio: resample, crop/pad to 4.0 s, log-mel with torchaudio, AudioEncoder (conv net), class-weighted cross-entropy; apply time/frequency masking in unimodal training only. Train the in-domain audio model on pooled Belize+Vietnam train split excluding thunder_wind clips. Also run cross-site checks: train Belize / test Vietnam and the reverse (separate checkpoints, not used for fusion embeddings).
+Save logits, probabilities and penultimate embeddings for EVERY scanned file (including held-out thunder clips) to results/runs/seed_<n>/outputs/.
+Metrics: image per-class precision/recall/F1 and per-view (aerial_thermal vs camera_trap) reported separately; audio precision, recall, F1, FPR = FP/(FP+TN) with gunshot as positive, ROC-AUC. A metric with a zero denominator is left undefined, never stored as 0. A view or class with no test files is written NOT YET RUN.
+Optional flag (off by default): swap in a pretrained backbone (ResNet18 for images, PANNs/YAMNet embeddings for audio) for comparison.
+Acceptance: smoke training on fixture data runs in under 5 minutes on CPU; outputs saved; NOT YET RUN handling tested.
+
+PHASE 3: synthetic pairs
+pairing.py builds scenarios only inside a split (pair_split keeps rows whose split matches). Cap each scenario at max_pairs_per_scenario. Files may be reused inside a split, but the exact (image, audio, scenario) triple is not repeated. If the vehicle pool is empty, vehicle_gunshot is written with built count 0; never invent vehicle images. Compute suspicious and risk with decisions.py. Write results/protocol/pairing_self_check.json (not_a_dataset_evaluation true, cross_split_pairs 0, per-split scenario counts) from a tiny in-memory fixture.
+Acceptance: test that no pair crosses splits; test the empty vehicle pool; deterministic with seeds.
+
+PHASE 4: fusion
+Early: resize and average each image to an image_pool x image_pool spatial pool; audio contributes mean and std of log-mel bands and of the MFCC sequence; concatenate with image_present and audio_present bits; StandardScaler fit on clean train pairs; logistic regression (balanced class weights) fit on clean pairs plus a modality-dropout copy; missing modality = zeros with presence bit 0.
+Intermediate: four heads on the same pairs: intermediate_joint_concat (MLP on two embeddings + presence bits, fine-tunes both encoders), intermediate_joint_gated (project each embedding, learned vector for missing modality, mask missing with a large negative score, softmax over two tokens, fine-tunes encoders), intermediate_frozen_concat and intermediate_frozen_gated (train only the joint layer on saved embeddings). Choose checkpoints by validation binary cross-entropy; choose the threshold by grid search on validation.
+Late: temperature scaling per branch on validation logits (temperature = exp(parameter), positive); if validation lacks both classes, record NOT YET RUN. Grid search audio weight and visual weight (sum to 1, step 0.05) and a threshold, maximise validation F1 then prefer lower FPR. Rule head: HIGH if P(human or vehicle) and P(gunshot) both clear validation thresholds; MEDIUM if exactly one; LOW otherwise; binary prediction positive only on HIGH. Missing modality: weighted head uses the remaining probability with threshold raised by conservative_tau_delta (capped at tau_cap); the rule head cannot reach HIGH with one sensor, so its binary prediction stays negative.
+Baselines on the same pairs: image-only (calibrated P(human)+P(vehicle)) and audio-only (calibrated P(gunshot)); if their modality is dropped they predict negative and never borrow the other sensor.
+Acceptance: unit tests for each missing-modality policy; each method returns scores for clean and dropped conditions.
+
+PHASE 5: evaluation
+Score every method on: clean, audio dropped, image dropped, waveform noise at 5 dB SNR, image blur radius 2.0, brightness factor 0.3. Do NOT refit thresholds or temperatures on corrupted inputs. CPU latency: time file read + forward pass for 10 test events x 3 repeats after weights are loaded; write within_target (5 s) to latency.csv. Bootstrap 95% intervals (1000 resamples of test pairs within one seed; metrics with undefined denominators are skipped). Across seeds, a reducer writes count, mean and sample standard deviation (divisor n-1; empty std cell if fewer than 2 values). Write fusion_metrics.csv, failures.csv, per-scenario results, and figures. The key table: fused vs image-only vs audio-only, with FPR beside F1.
+Acceptance: make evaluate produces all files; any missing input produces NOT YET RUN cells, not zeros.
+
+PHASE 6: BDA module (src/bda)
+Hadoop-streaming style jobs: class-count job (modality, source, label), scenario job (split, scenario, suspicious, risk), metric job (method, condition, metric, value) with a reducer that emits n, mean, sample std. stream.py uses the Hadoop streaming jar if HADOOP_HOME and hadoop are present; otherwise it sorts mapper output locally and runs the same reducer; log the engine name (e.g. python_streaming_local). Provide spark_jobs.py (manifest ingest to Parquet, class weights w_c = N/(k*n_c), audio log-mel features via pandas UDF) that runs only if pyspark imports, otherwise report "Spark: NOT YET RUN". Provide schema.hql (Hive DDL) but do not execute it. Include fixtures and write results/bda/self_check/*.csv.
+Acceptance: self-check outputs match the fixture counts; engine name logged; Spark absence handled.
+
+PHASE 7: API + dashboard + deploy (see the separate prompt)
+FastAPI routes: GET /api/health; POST /api/analyze (optional image file(s) or video file decoded to frames, optional audio file, sensor_id, timestamp) returning image label+probs, audio label+probs, method scores, risk tier, and a "synthetic evidence only" disclaimer; GET /api/results (reads results/*.csv; returns NOT YET RUN when absent); GET /api/demo. Load weights from the Hugging Face Hub at startup via env var; start in demo mode if weights are missing. Dockerfile exposes port 7860.
+Acceptance: TestClient tests for each route; docker build succeeds.
+
+GLOBAL RULES: follow the rules file. No invented metrics. Ask before adding dependencies. Start with Phase 0 now: show the file tree, then implement.
+````
+
+---
+
+## 9. DASHBOARD + DEPLOY PROMPT (second Antigravity task, in `dashboard/`)
+
+````text
+Build a Next.js 14 (App Router, TypeScript, Tailwind, shadcn/ui, Recharts) dashboard "GuardianEye Console" in the folder dashboard/. It calls the FastAPI backend at NEXT_PUBLIC_API_BASE_URL (default http://localhost:8000) and works in DEMO MODE with built-in mock data if the API is unreachable (show a "Demo data" badge).
+
+PAGES
+1. / Analyze: upload an image (or a short video) and/or an audio clip, enter a sensor id; call POST /api/analyze; show image label and probabilities, audio label and probabilities, each fusion method's score (early, intermediate, late, image-only, audio-only), the risk tier (HIGH red, MEDIUM amber, LOW blue, with icon and text, not colour alone), and a permanent banner: "Proof of concept evaluated on synthetic pairs. Not a confirmed poaching alert."
+2. /results: read GET /api/results. Show the comparison table (fused vs image-only vs audio-only: precision, recall, F1, FPR), robustness table (clean, audio dropped, image dropped, noise, blur, low light), latency table, and bar charts. Cells the backend returns as "NOT YET RUN" must render exactly as "NOT YET RUN" with the reason on hover; never show zeros or placeholders as results.
+3. /data: dataset cards (BIRDSAI, Caltech Camera Traps, Snapshot Serengeti, Belize, Vietnam, ESC-50) with source, licence note, role, and counts from the manifest status.
+4. /architecture: the pipeline diagram (image branch, audio branch, fusion, risk) and the big-data layer (HDFS, Kafka, Spark, Hive) as a static diagram.
+5. /about: limitations (synthetic pairs, rule-derived label, no field validation).
+
+QUALITY: mobile responsive, accessible, loading skeletons, empty and error states, dark mode, no secrets in the client, .env.example, README with local run and Vercel deploy steps.
+````
+
+---
+
+## 10. Global deployment, step by step
+
+Architecture: **Vercel** (dashboard, served from a global CDN) calls a **FastAPI container** (Hugging Face Space or Cloud Run). Weights live in a Hugging Face model repo.
+
+1. **Prepare**: all tests pass, `main` is green on GitHub, no secrets in the repo.
+2. **Upload weights** (only the small final checkpoints, never data):
+~~~bash
+pip install huggingface_hub && hf auth login
+hf repo create guardian-eye-weights --type model
+hf upload <you>/guardian-eye-weights results/final_weights .
+~~~
+3. **Deploy the API on a Hugging Face Space** (simplest, free CPU tier, public URL): create a new Space, choose **Docker**, connect or push your repo, make sure the Dockerfile exposes port **7860**, add Space secrets `HF_WEIGHTS_REPO` and `ALLOWED_ORIGINS`. Free Spaces can go to sleep after inactivity, so the first request may be slow.
+   - Alternative for steadier production use: **Google Cloud Run** (`gcloud run deploy --source .`), which scales to zero and gives an HTTPS URL; or **Fly.io** if you later want multiple regions.
+4. **Deploy the dashboard on Vercel**: `vercel login`, then import the GitHub repo in the Vercel dashboard, set **Root Directory = dashboard**, add env var `NEXT_PUBLIC_API_BASE_URL` = your Space or Cloud Run URL, deploy. Every push to `main` redeploys.
+5. **CORS**: set `ALLOWED_ORIGINS` on the API to your Vercel domain (and `http://localhost:3000` for dev).
+6. **Hardening**: limit upload size (for example 10 MB image, 5 MB audio), add a simple rate limit, accept only image/audio MIME types, and do not log uploaded files. Do not expose dataset files, real sensor coordinates, or anything from restricted data.
+7. **Smoke test the live site**: `/api/health` returns OK; upload a sample image + clip; open `/results` and confirm NOT YET RUN cells appear exactly where results are missing.
+8. **Optional**: custom domain on Vercel; put the API behind Cloudflare for caching and DDoS protection; uptime check on `/api/health`.
+9. **Tag the release**: `git tag v1.0-submission && git push --tags`.
+
+"Global" here means the dashboard is served worldwide from Vercel's CDN and the API is reachable over HTTPS from anywhere. A single API region is fine for a college project; multi-region is only needed for real production traffic.
+
+---
+
+## 11. Consistency flags in your reports (fix before submitting)
+
+1. **Detector mismatch.** The BDA report describes a YOLOv8-class image detector; the CA4 report implements a four-block CNN classifier. Align the wording (for example: "CA4 uses a CNN classifier; a YOLO-style detector is future work").
+2. **Names and PRN.** The reports list "Akhil Chilvkula" and "Sukhada Dhingra" with PRN 23070126505. Earlier in this chat the details were "Akhil Chivukula" and "Sukhada Dinghra" with PRN 24070126506. Confirm the correct spellings and numbers and use the same ones in every document.
+3. **Datasets in earlier assignments.** Assignments 1 and 2 (Word docs) mention VisDrone, HIT-UAV, UrbanSound8K, FSD50K and AudioSet. Your CA4 scope uses BIRDSAI, CCT, Serengeti, Belize and Vietnam. Update Assignment 2 if it will be submitted alongside CA4.
+4. **Modalities.** Assignments 1 and 2 describe three modalities (video, image, audio). CA2 onward uses two.
+5. **Status honesty.** CA4 says dataset evaluation is NOT YET RUN. Once data is on disk and the pipeline runs, regenerate every table; do not edit numbers by hand.
+6. **Dataset sizes.** Belize: 749 gunshot and over 35,000 background WAVs, 4.09 s at 8 kHz (matches your 2.1% imbalance calculation). Re-check Caltech and Serengeti sizes against the exact release you download.
+  
+===== scripts\train_image.py =====  
+"""
+CLI script to train GuardianEye image branch models across seeds.
+
+Usage
+-----
+    python scripts/train_image.py [OPTIONS]
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import sys
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+import torch
+
+from src.config import GuardianEyeConfig, load_config, resolve_paths
+from src.evaluation.outputs import extract_image_outputs, save_serialized_outputs
+from src.image.evaluate import evaluate_image_model
+from src.image.train import train_image_model
+from src.logging_config import get_device, setup_logging
+
+logger = logging.getLogger(__name__)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Return CLI argument parser for train_image."""
+    parser = argparse.ArgumentParser(
+        prog="train-image",
+        description="Train GuardianEye 4-block CNN ImageEncoder with class-weighted cross-entropy.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--data-root", metavar="PATH", default=None, help="Data root path.")
+    parser.add_argument("--results-root", metavar="PATH", default=None, help="Results root path.")
+    parser.add_argument("--config", metavar="PATH", default=None, help="Path to config file.")
+    parser.add_argument(
+        "--seeds",
+        metavar="INT",
+        nargs="+",
+        type=int,
+        default=None,
+        help="Seeds to train for (default: from config.yaml).",
+    )
+    parser.add_argument(
+        "--epochs",
+        metavar="INT",
+        type=int,
+        default=None,
+        help="Override number of training epochs.",
+    )
+    parser.add_argument(
+        "--batch-size",
+        metavar="INT",
+        type=int,
+        default=None,
+        help="Override training batch size.",
+    )
+    parser.add_argument(
+        "--log-level",
+        metavar="LEVEL",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Logging level (default: INFO).",
+    )
+    return parser
+
+
+def write_unimodal_not_yet_run(run_dir: Path, seed: int, reason: str) -> None:
+    """Write NOT YET RUN status JSON to run root and outputs folder."""
+    status_data = {
+        "seed": seed,
+        "status": "NOT YET RUN",
+        "reason": reason,
+        "image_trained": False,
+        "audio_trained": False,
+        "cross_site_evaluated": False,
+    }
+    for p in [run_dir / "unimodal_status.json", run_dir / "outputs" / "unimodal_status.json"]:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with p.open("w", encoding="utf-8") as f:
+            json.dump(status_data, f, indent=2)
+
+
+def run_image_training_for_seed(
+    cfg: GuardianEyeConfig,
+    seed: int,
+    device: torch.device,
+    epochs: int | None = None,
+    batch_size: int | None = None,
+) -> int:
+    """Run image branch training and evaluation for a single seed."""
+    run_dir = cfg.paths.results_root / "runs" / f"seed_{seed}"
+    manifest_csv = run_dir / "manifest" / "manifest.csv"
+    manifest_status_file = run_dir / "manifest" / "manifest_status.json"
+
+    # Check Phase 1 manifest status
+    if manifest_status_file.exists():
+        try:
+            with manifest_status_file.open("r", encoding="utf-8") as f:
+                manifest_status = json.load(f)
+            if manifest_status.get("status") == "NOT YET RUN":
+                m_reason = manifest_status.get("reason", "unpopulated")
+                reason = f"Phase 1 manifest status is NOT YET RUN: {m_reason}"
+                logger.warning("Seed %d: %s. Exiting cleanly.", seed, reason)
+                write_unimodal_not_yet_run(run_dir, seed, reason)
+                return 0
+        except Exception as exc:
+            logger.warning("Could not read %s: %s", manifest_status_file, exc)
+
+    if not manifest_csv.exists() or manifest_csv.stat().st_size == 0:
+        reason = "Manifest CSV is missing or empty."
+        logger.warning("Seed %d: %s. Exiting cleanly.", seed, reason)
+        write_unimodal_not_yet_run(run_dir, seed, reason)
+        return 0
+
+    df = pd.read_csv(manifest_csv)
+    image_df = df[df["modality"] == "image"]
+    if len(image_df) == 0:
+        reason = "Manifest contains 0 image records."
+        logger.warning("Seed %d: %s. Exiting cleanly.", seed, reason)
+        write_unimodal_not_yet_run(run_dir, seed, reason)
+        return 0
+
+    train_df = image_df[image_df["split"] == "train"]
+    val_df = image_df[image_df["split"] == "val"]
+    test_df = image_df[image_df["split"] == "test"]
+
+    if len(train_df) == 0:
+        reason = "0 image samples assigned to train split."
+        logger.warning("Seed %d: %s. Exiting cleanly.", seed, reason)
+        write_unimodal_not_yet_run(run_dir, seed, reason)
+        return 0
+
+    checkpoint_dir = run_dir / "checkpoints" / "image_branch"
+    outputs_dir = run_dir / "outputs"
+    metrics_dir = run_dir / "metrics"
+
+    logger.info("Training ImageEncoder for seed %d (device: %s)", seed, device)
+    model, _ = train_image_model(
+        train_df=train_df,
+        val_df=val_df,
+        data_root=cfg.paths.data_root,
+        cfg=cfg,
+        seed=seed,
+        device=device,
+        checkpoint_dir=checkpoint_dir,
+        epochs=epochs,
+        batch_size=batch_size,
+    )
+
+    # 1. Extract and serialize outputs for EVERY scanned image file
+    logger.info("Extracting embeddings for %d image files...", len(image_df))
+    image_outputs = extract_image_outputs(
+        model=model,
+        manifest_df=image_df,
+        data_root=cfg.paths.data_root,
+        device=device,
+        batch_size=batch_size or cfg.image.batch_size,
+    )
+    save_serialized_outputs(image_outputs, outputs_dir / "image_outputs.pt")
+
+    # 2. Evaluate model strictly on test split
+    logger.info("Evaluating ImageEncoder on test split (%d samples)...", len(test_df))
+    metrics = evaluate_image_model(
+        model=model,
+        test_df=test_df,
+        data_root=cfg.paths.data_root,
+        device=device,
+        batch_size=batch_size or cfg.image.batch_size,
+    )
+
+    metrics_dir.mkdir(parents=True, exist_ok=True)
+    metrics_file = metrics_dir / "image_metrics.json"
+    with metrics_file.open("w", encoding="utf-8") as f:
+        json.dump(metrics, f, indent=2)
+    logger.info("Saved image metrics to %s", metrics_file)
+
+    # Update unimodal status
+    status_file = run_dir / "unimodal_status.json"
+    current_status: dict[str, Any] = {}
+    if status_file.exists():
+        try:
+            with status_file.open("r", encoding="utf-8") as f:
+                current_status = json.load(f)
+        except Exception:
+            pass
+
+    current_status["seed"] = seed
+    current_status["status"] = "OK"
+    current_status["image_trained"] = True
+    for p in [status_file, outputs_dir / "unimodal_status.json"]:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with p.open("w", encoding="utf-8") as f:
+            json.dump(current_status, f, indent=2)
+
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI entry point for scripts/train_image.py."""
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    setup_logging(level=args.log_level)
+    cfg = load_config(
+        config_path=args.config,
+        data_root=args.data_root,
+        results_root=args.results_root,
+    )
+    resolve_paths(cfg, data_root=args.data_root, results_root=args.results_root)
+    device = get_device()
+
+    seeds = args.seeds or cfg.reproducibility.seeds
+    for seed in seeds:
+        code = run_image_training_for_seed(
+            cfg=cfg,
+            seed=seed,
+            device=device,
+            epochs=args.epochs,
+            batch_size=args.batch_size,
+        )
+        if code != 0:
+            return code
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+  
+===== scripts\run.py =====  
+"""GuardianEye CLI entry point.
+
+Usage
+-----
+Run the project pipeline from Colab, Kaggle, or locally::
+
+    python -m scripts.run [OPTIONS]
+
+Options
+-------
+--smoke
+    Run in smoke-test mode: uses tiny synthetic fixtures, 1 epoch,
+    no real datasets required, targets < 5 minutes on CPU.
+--data-root PATH
+    Override DATA_ROOT (highest precedence, beats env var and config.yaml).
+--results-root PATH
+    Override RESULTS_ROOT (highest precedence).
+--config PATH
+    Path to a YAML config file (default: config.yaml in repo root).
+--log-level LEVEL
+    Logging level: DEBUG, INFO, WARNING, ERROR (default: INFO).
+
+Phase availability
+------------------
+Phase 0  : configuration, logging, device detection, smoke mode  ✓
+Phase 1+ : model training and evaluation — NOT YET AVAILABLE
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import sys
+import time
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Return the CLI argument parser.
+
+    Separated from ``main()`` so tests can import and interrogate it
+    without running the full program.
+
+    Returns
+    -------
+    argparse.ArgumentParser
+        Configured parser with all supported flags.
+    """
+    parser = argparse.ArgumentParser(
+        prog="guardian-run",
+        description="GuardianEye — multi-modal anti-poaching risk assessment.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--smoke",
+        action="store_true",
+        default=False,
+        help=(
+            "Run in CPU smoke-test mode: uses tiny synthetic fixtures, "
+            "1 epoch, no GPU or real datasets required. "
+            "Target: < 5 minutes on an ordinary CPU."
+        ),
+    )
+    parser.add_argument(
+        "--data-root",
+        metavar="PATH",
+        default=None,
+        help="Override data root path (highest precedence).",
+    )
+    parser.add_argument(
+        "--results-root",
+        metavar="PATH",
+        default=None,
+        help="Override results root path (highest precedence).",
+    )
+    parser.add_argument(
+        "--config",
+        metavar="PATH",
+        default=None,
+        help="Path to a YAML configuration file (default: config.yaml).",
+    )
+    parser.add_argument(
+        "--log-level",
+        metavar="LEVEL",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Logging level (default: INFO).",
+    )
+    return parser
+
+
+def _run_smoke(cfg: GuardianEyeConfig) -> None:  # noqa: F821
+    """Execute a lightweight CPU smoke test using synthetic fixtures.
+
+    This function:
+    1. Logs the active smoke configuration.
+    2. Generates tiny synthetic tensors (no real data required).
+    3. Confirms that the config, logging, and device detection are working.
+    4. Reports elapsed time.
+
+    It does NOT train models, download datasets, or produce real metrics.
+
+    Parameters
+    ----------
+    cfg:
+        Validated GuardianEye configuration object.
+    """
+    import torch
+
+    from src.logging_config import get_device
+
+    logger = logging.getLogger(__name__)
+    logger.info("=== SMOKE TEST MODE ===")
+    logger.info(
+        "Smoke settings: batch=%d epochs=%d fixture_images=%d fixture_audio=%d",
+        cfg.smoke.batch_size,
+        cfg.smoke.epochs,
+        cfg.smoke.fixture_images,
+        cfg.smoke.fixture_audio,
+    )
+
+    device = get_device()
+    logger.info("Device selected: %s", device)
+
+    start = time.perf_counter()
+
+    # Synthetic image-like tensors  [N, C, H, W]
+    fake_images = torch.randn(
+        cfg.smoke.fixture_images,
+        3,
+        *cfg.image.input_size,
+    )
+    # Synthetic audio-like mel spectrogram tensors [N, 1, Mels, T]
+    time_frames = int(
+        cfg.audio.duration_sec * cfg.audio.sample_rate / cfg.audio.hop_length
+    )
+    fake_audio = torch.randn(
+        cfg.smoke.fixture_audio,
+        1,
+        cfg.audio.n_mels,
+        time_frames,
+    )
+
+    logger.info(
+        "Synthetic fixtures created -- images: %s, audio: %s",
+        tuple(fake_images.shape),
+        tuple(fake_audio.shape),
+    )
+
+    # Simulate one epoch of trivial processing (no model, no backprop)
+    for epoch in range(cfg.smoke.epochs):
+        for i in range(0, cfg.smoke.fixture_images, cfg.smoke.batch_size):
+            batch = fake_images[i : i + cfg.smoke.batch_size].to(device)
+            _ = batch.mean()  # stand-in for a forward pass
+
+        logger.info("Smoke epoch %d complete", epoch)
+
+    elapsed = time.perf_counter() - start
+    budget_sec = 5 * 60  # 5 minutes
+
+    if elapsed < budget_sec:
+        logger.info(
+            "Smoke test PASSED -- elapsed %.2fs (budget %ds)", elapsed, budget_sec
+        )
+    else:
+        logger.warning(
+            "Smoke test EXCEEDED budget -- elapsed %.2fs (budget %ds)",
+            elapsed,
+            budget_sec,
+        )
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI entry point.
+
+    Parameters
+    ----------
+    argv:
+        Argument list.  Defaults to ``sys.argv[1:]`` when ``None``.
+
+    Returns
+    -------
+    int
+        Exit code (0 = success, non-zero = failure).
+    """
+    from src.config import load_config
+    from src.logging_config import setup_logging
+
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    setup_logging(level=getattr(logging, args.log_level))
+    logger = logging.getLogger(__name__)
+
+    try:
+        cfg = load_config(
+            config_path=args.config,
+            data_root=args.data_root,
+            results_root=args.results_root,
+        )
+    except FileNotFoundError as exc:
+        logger.error("Configuration error: %s", exc)
+        return 1
+
+    logger.info(
+        "GuardianEye %s loaded -- data_root=%s results_root=%s",
+        cfg.project.version,
+        cfg.paths.data_root,
+        cfg.paths.results_root,
+    )
+
+    if args.smoke:
+        _run_smoke(cfg)
+        return 0
+
+    # -----------------------------------------------------------------------
+    # Full pipeline — not yet implemented in Phase 0
+    # -----------------------------------------------------------------------
+    logger.info(
+        "Full pipeline is NOT YET AVAILABLE in Phase 0. "
+        "Use 'make train-image', 'make train-audio', etc. in later phases. "
+        "Run with --smoke to verify the environment."
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+  
+===== src\config.py =====  
+"""
+GuardianEye configuration loader.
+
+Reads ``config.yaml``, validates all values with Pydantic v2, and exposes a
+``load_config()`` function that respects the following precedence order
+(highest first):
+
+1. Explicit CLI arguments passed to ``resolve_paths()``
+2. ``DATA_ROOT`` / ``RESULTS_ROOT`` environment variables
+3. Values in ``config.yaml``
+
+Usage
+-----
+>>> from src.config import load_config
+>>> cfg = load_config()
+>>> cfg.paths.data_root
+PosixPath('data')
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from typing import Any
+
+import yaml
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+# ---------------------------------------------------------------------------
+# Sub-models
+# ---------------------------------------------------------------------------
+
+
+class ProjectConfig(BaseModel):
+    """Top-level project metadata."""
+
+    name: str = "guardian-eye"
+    version: str = "0.1.0"
+
+
+class PathsConfig(BaseModel):
+    """
+    Filesystem path configuration.
+
+    ``data_root`` and ``results_root`` are overridable via the ``DATA_ROOT``
+    and ``RESULTS_ROOT`` environment variables.
+    """
+
+    data_root: Path = Path("data")
+    results_root: Path = Path("results")
+    raw_subdir: str = "raw"
+    processed_subdir: str = "processed"
+
+    @property
+    def raw(self) -> Path:
+        """Return the full path to the raw data directory."""
+        return self.data_root / self.raw_subdir
+
+    @property
+    def processed(self) -> Path:
+        """Return the full path to the processed data directory."""
+        return self.data_root / self.processed_subdir
+
+
+class ReproducibilityConfig(BaseModel):
+    """Random seeds for experiment replication."""
+
+    seeds: list[int] = [27, 2701, 26009]
+
+
+class SplitsConfig(BaseModel):
+    """Dataset split fractions; must sum to 1.0."""
+
+    train: float = Field(0.70, gt=0, lt=1)
+    val: float = Field(0.15, gt=0, lt=1)
+    test: float = Field(0.15, gt=0, lt=1)
+
+    @model_validator(mode="after")
+    def _check_sum(self) -> SplitsConfig:
+        """Validate that split fractions sum to 1.0."""
+        total = round(self.train + self.val + self.test, 6)
+        if abs(total - 1.0) > 1e-6:
+            raise ValueError(
+                f"splits must sum to 1.0, got {total}"
+            )
+        return self
+
+
+class DatasetsConfig(BaseModel):
+    """Names of dataset sub-directories within data/raw/."""
+
+    image: list[str] = ["birdsai", "cct", "serengeti", "belize", "vietnam"]
+    audio: list[str] = ["esc50"]
+
+
+class ImageConfig(BaseModel):
+    """Image-branch hyperparameters."""
+
+    input_size: tuple[int, int] = (224, 224)
+    backbone: str = "cnn4"
+    pretrained: bool = False
+    embedding_dim: int = Field(128, ge=1)
+    num_classes: int = Field(4, ge=1)
+    batch_size: int = Field(32, ge=1)
+    epochs: int = Field(30, ge=1)
+    lr: float = Field(1e-4, gt=0)
+    weight_decay: float = Field(1e-4, ge=0)
+    augment: bool = True
+
+
+class AudioConfig(BaseModel):
+    """Audio-branch hyperparameters."""
+
+    sample_rate: int = Field(8000, gt=0)
+    n_mels: int = Field(64, ge=1)
+    hop_length: int = Field(128, ge=1)
+    n_fft: int = Field(512, ge=1)
+    duration_sec: float = Field(4.0, gt=0)
+    backbone: str = "cnn4"
+    pretrained: bool = False
+    embedding_dim: int = Field(128, ge=1)
+    num_classes: int = Field(2, ge=1)
+    batch_size: int = Field(64, ge=1)
+    epochs: int = Field(30, ge=1)
+    lr: float = Field(1e-4, gt=0)
+    weight_decay: float = Field(1e-4, ge=0)
+    augment: bool = True
+
+
+class PairsConfig(BaseModel):
+    """Image–audio synthetic pairing limits."""
+
+    max_pairs_per_split: int = Field(10_000, ge=1)
+    max_pairs_per_scenario: int = Field(1500, ge=1)
+    min_images_per_class: int = Field(50, ge=1)
+    cross_split_allowed: bool = False
+
+
+class FusionConfig(BaseModel):
+    """Late-fusion settings."""
+
+    method: str = "late_fusion"
+    image_weight: float = Field(0.6, ge=0, le=1)
+    audio_weight: float = Field(0.4, ge=0, le=1)
+
+    @field_validator("method")
+    @classmethod
+    def _check_method(cls, v: str) -> str:
+        """Validate fusion method name."""
+        allowed = {"late_fusion", "learned_weighted"}
+        if v not in allowed:
+            raise ValueError(f"fusion.method must be one of {allowed}, got {v!r}")
+        return v
+
+
+class RobustnessConfig(BaseModel):
+    """Robustness evaluation parameters."""
+
+    noise_types: list[str] = ["gaussian", "salt_pepper", "occlusion"]
+    noise_levels: list[float] = [0.05, 0.10, 0.20]
+
+
+class EvaluationConfig(BaseModel):
+    """Evaluation metrics and bootstrap settings."""
+
+    metrics: list[str] = ["accuracy", "f1_macro", "roc_auc", "ap"]
+    bootstrap_resamples: int = Field(1000, ge=1)
+    confidence_level: float = Field(0.95, gt=0, lt=1)
+
+
+class LatencyConfig(BaseModel):
+    """Per-inference latency targets in milliseconds."""
+
+    image_ms: float = Field(100.0, gt=0)
+    audio_ms: float = Field(100.0, gt=0)
+    fusion_ms: float = Field(20.0, gt=0)
+    total_ms: float = Field(250.0, gt=0)
+
+
+class BdaConfig(BaseModel):
+    """Big Data Analytics (BDA) module settings."""
+
+    engine: str = "auto"
+    self_check: bool = False
+
+    @field_validator("engine")
+    @classmethod
+    def _check_engine(cls, v: str) -> str:
+        """Validate engine name."""
+        allowed = {"auto", "hadoop_streaming", "python_streaming_local"}
+        if v not in allowed:
+            raise ValueError(f"bda.engine must be one of {allowed}, got {v!r}")
+        return v
+
+
+class SmokeConfig(BaseModel):
+    """Settings for CPU-only smoke tests."""
+
+    batch_size: int = Field(2, ge=1)
+    epochs: int = Field(1, ge=1)
+    max_pairs: int = Field(10, ge=1)
+    fixture_images: int = Field(8, ge=1)
+    fixture_audio: int = Field(8, ge=1)
+
+
+# ---------------------------------------------------------------------------
+# Root configuration model
+# ---------------------------------------------------------------------------
+
+
+class GuardianEyeConfig(BaseModel):
+    """
+    Root configuration model for GuardianEye.
+
+    Loaded from ``config.yaml`` and optionally overridden by environment
+    variables ``DATA_ROOT`` and ``RESULTS_ROOT``.
+    """
+
+    project: ProjectConfig = Field(default_factory=ProjectConfig)
+    paths: PathsConfig = Field(default_factory=PathsConfig)
+    reproducibility: ReproducibilityConfig = Field(
+        default_factory=ReproducibilityConfig
+    )
+    splits: SplitsConfig = Field(default_factory=SplitsConfig)
+    datasets: DatasetsConfig = Field(default_factory=DatasetsConfig)
+    image: ImageConfig = Field(default_factory=ImageConfig)
+    audio: AudioConfig = Field(default_factory=AudioConfig)
+    pairs: PairsConfig = Field(default_factory=PairsConfig)
+    fusion: FusionConfig = Field(default_factory=FusionConfig)
+    robustness: RobustnessConfig = Field(default_factory=RobustnessConfig)
+    evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
+    latency: LatencyConfig = Field(default_factory=LatencyConfig)
+    bda: BdaConfig = Field(default_factory=BdaConfig)
+    smoke: SmokeConfig = Field(default_factory=SmokeConfig)
+
+
+# ---------------------------------------------------------------------------
+# Loader
+# ---------------------------------------------------------------------------
+
+_DEFAULT_CONFIG_PATH = Path(__file__).parent.parent / "config.yaml"
+
+
+def load_config(
+    config_path: Path | str | None = None,
+    *,
+    data_root: Path | str | None = None,
+    results_root: Path | str | None = None,
+) -> GuardianEyeConfig:
+    """
+    Load and validate the GuardianEye configuration.
+
+    Precedence (highest first):
+    1. ``data_root`` / ``results_root`` keyword arguments (CLI overrides)
+    2. ``DATA_ROOT`` / ``RESULTS_ROOT`` environment variables
+    3. Values in ``config.yaml``
+
+    Parameters
+    ----------
+    config_path:
+        Path to the YAML configuration file.  Defaults to the
+        ``config.yaml`` in the repository root.
+    data_root:
+        Override for ``paths.data_root`` (CLI level).
+    results_root:
+        Override for ``paths.results_root`` (CLI level).
+
+    Returns
+    -------
+    GuardianEyeConfig
+        Validated configuration object.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the configuration file does not exist.
+    pydantic.ValidationError
+        If the configuration values fail validation.
+
+    """
+    cfg_path = Path(config_path) if config_path is not None else _DEFAULT_CONFIG_PATH
+
+    if not cfg_path.exists():
+        raise FileNotFoundError(f"Configuration file not found: {cfg_path}")
+
+    with cfg_path.open() as fh:
+        raw: dict[str, Any] = yaml.safe_load(fh) or {}
+
+    # Build the config from YAML
+    cfg = GuardianEyeConfig.model_validate(raw)
+
+    # Apply env-var overrides (level 2)
+    env_data = os.environ.get("DATA_ROOT")
+    env_results = os.environ.get("RESULTS_ROOT")
+    if env_data:
+        cfg.paths.data_root = Path(env_data)
+    if env_results:
+        cfg.paths.results_root = Path(env_results)
+
+    # Apply CLI-level overrides (level 1, highest)
+    cfg = resolve_paths(cfg, data_root=data_root, results_root=results_root)
+
+    return cfg
+
+
+def resolve_paths(
+    cfg: GuardianEyeConfig,
+    *,
+    data_root: Path | str | None = None,
+    results_root: Path | str | None = None,
+) -> GuardianEyeConfig:
+    """
+    Apply explicit CLI path overrides to an existing config.
+
+    This is the highest-precedence path override layer.  Call it after
+    parsing CLI arguments to apply ``--data-root`` / ``--results-root`` flags.
+
+    Parameters
+    ----------
+    cfg:
+        Configuration object to update (mutated in place and returned).
+    data_root:
+        Explicit data root path.  ``None`` means "no override".
+    results_root:
+        Explicit results root path.  ``None`` means "no override".
+
+    Returns
+    -------
+    GuardianEyeConfig
+        The same object with paths updated.
+
+    """
+    if data_root is not None:
+        cfg.paths.data_root = Path(data_root)
+    if results_root is not None:
+        cfg.paths.results_root = Path(results_root)
+    return cfg
+  
+===== src\models.py =====  
+"""
+GuardianEye unimodal model architectures.
+
+Implements:
+- ImageEncoder: 4-block CNN, 128-d penultimate embedding, 4-class classifier head
+  (human, vehicle, animal, empty) with opt-in ResNet-18 support.
+- AudioEncoder: 4-block CNN for log-mel spectrograms (1, 64, 251), 128-d penultimate
+  embedding, 2-class classifier head (background, gunshot).
+"""
+
+from __future__ import annotations
+
+import logging
+
+import torch
+import torch.nn as nn
+
+logger = logging.getLogger(__name__)
+
+# Canonical class labels and indices
+IMAGE_CLASSES: list[str] = ["human", "vehicle", "animal", "empty"]
+IMAGE_CLASS_TO_IDX: dict[str, int] = {c: i for i, c in enumerate(IMAGE_CLASSES)}
+
+AUDIO_CLASSES: list[str] = ["background", "gunshot"]
+AUDIO_CLASS_TO_IDX: dict[str, int] = {c: i for i, c in enumerate(AUDIO_CLASSES)}
+
+
+class ConvBlock(nn.Module):
+    """A standard Convolution-BatchNorm-ReLU-MaxPool block."""
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int = 3,
+        padding: int = 1,
+        pool_size: int = 2,
+    ) -> None:
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Conv2d(
+                in_channels,
+                out_channels,
+                kernel_size=kernel_size,
+                padding=padding,
+                bias=False,
+            ),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=pool_size, stride=pool_size),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass through conv, batchnorm, relu, and maxpool."""
+        return self.block(x)
+
+
+class ImageEncoder(nn.Module):
+    """
+    Image branch encoder.
+
+    Architecture:
+    - 4 Conv blocks: 3 -> 32 -> 64 -> 128 -> 256 channels.
+    - Adaptive average pooling to (1, 1).
+    - Linear projection to penultimate 128-d embedding.
+    - Linear classification head to 4 classes (human, vehicle, animal, empty).
+    - Opt-in support for pretrained ResNet-18 backbone.
+    """
+
+    def __init__(
+        self,
+        num_classes: int = 4,
+        embedding_dim: int = 128,
+        use_pretrained: bool = False,
+    ) -> None:
+        super().__init__()
+        self.num_classes = num_classes
+        self.embedding_dim = embedding_dim
+        self.use_pretrained = use_pretrained
+
+        if use_pretrained:
+            try:
+                import torchvision.models as models
+
+                backbone = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+                feature_dim = backbone.fc.in_features
+                backbone.fc = nn.Identity()
+                self.backbone = backbone
+                self.fc_embed = nn.Linear(feature_dim, embedding_dim)
+            except ImportError as err:
+                raise ImportError(
+                    "torchvision is required for pretrained ResNet-18 backbone."
+                ) from err
+        else:
+            self.backbone = nn.Sequential(
+                ConvBlock(3, 32),
+                ConvBlock(32, 64),
+                ConvBlock(64, 128),
+                ConvBlock(128, 256),
+                nn.AdaptiveAvgPool2d((1, 1)),
+                nn.Flatten(),
+            )
+            self.fc_embed = nn.Linear(256, embedding_dim)
+
+        self.classifier = nn.Linear(embedding_dim, num_classes)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        return_embedding: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+        """
+        Forward pass.
+
+        Parameters
+        ----------
+        x:
+            Input tensor of shape (B, 3, H, W).
+        return_embedding:
+            If True, returns (logits, embedding). Otherwise returns logits.
+
+        """
+        features = self.backbone(x)
+        if self.use_pretrained and features.ndim > 2:
+            features = torch.flatten(features, 1)
+        embedding = self.fc_embed(features)
+        logits = self.classifier(embedding)
+
+        if return_embedding:
+            return logits, embedding
+        return logits
+
+    def get_embedding(self, x: torch.Tensor) -> torch.Tensor:
+        """Extract 128-d penultimate embedding."""
+        features = self.backbone(x)
+        if self.use_pretrained and features.ndim > 2:
+            features = torch.flatten(features, 1)
+        return self.fc_embed(features)
+
+
+class AudioEncoder(nn.Module):
+    """
+    Audio branch encoder for log-mel spectrograms.
+
+    Architecture:
+    - 4 Conv blocks on (1, 64, 251) log-mel input: 1 -> 32 -> 64 -> 128 -> 256 channels.
+    - Adaptive average pooling to (1, 1).
+    - Linear projection to penultimate 128-d embedding.
+    - Linear classification head to 2 classes (background, gunshot).
+    """
+
+    def __init__(
+        self,
+        num_classes: int = 2,
+        embedding_dim: int = 128,
+        use_pretrained: bool = False,
+    ) -> None:
+        super().__init__()
+        self.num_classes = num_classes
+        self.embedding_dim = embedding_dim
+        self.use_pretrained = use_pretrained
+
+        if use_pretrained:
+            logger.info("Custom AudioEncoder used; pretrained audio backbone is opt-in.")
+
+        self.backbone = nn.Sequential(
+            ConvBlock(1, 32),
+            ConvBlock(32, 64),
+            ConvBlock(64, 128),
+            ConvBlock(128, 256),
+            nn.AdaptiveAvgPool2d((1, 1)),
+            nn.Flatten(),
+        )
+        self.fc_embed = nn.Linear(256, embedding_dim)
+        self.classifier = nn.Linear(embedding_dim, num_classes)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        return_embedding: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+        """
+        Forward pass.
+
+        Parameters
+        ----------
+        x:
+            Input log-mel spectrogram of shape (B, 1, 64, 251).
+        return_embedding:
+            If True, returns (logits, embedding). Otherwise returns logits.
+
+        """
+        features = self.backbone(x)
+        embedding = self.fc_embed(features)
+        logits = self.classifier(embedding)
+
+        if return_embedding:
+            return logits, embedding
+        return logits
+
+    def get_embedding(self, x: torch.Tensor) -> torch.Tensor:
+        """Extract 128-d penultimate embedding."""
+        features = self.backbone(x)
+        return self.fc_embed(features)
+  
+===== src\image\dataset.py =====  
+"""
+PyTorch Dataset for GuardianEye image branch.
+
+Reads images from manifest rows, validates existence, applies resizing
+to (224, 224), ImageNet normalization, and optional data augmentation
+during training.
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pandas as pd
+import torch
+from PIL import Image
+from torch.utils.data import Dataset
+
+from src.models import IMAGE_CLASS_TO_IDX
+
+logger = logging.getLogger(__name__)
+
+# Standard ImageNet normalization parameters
+IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
+
+def preprocess_image(
+    image: Image.Image,
+    target_size: tuple[int, int] = (224, 224),
+    is_train: bool = False,
+    seed: int | None = None,
+) -> torch.Tensor:
+    """Resize, augment, and normalize PIL Image to (3, H, W) float32 tensor."""
+    img = image.convert("RGB")
+    if img.size != target_size:
+        img = img.resize(target_size, Image.Resampling.BILINEAR)
+
+    arr = np.array(img, dtype=np.float32) / 255.0
+
+    # Data augmentation on training split only
+    if is_train:
+        # Random horizontal flip
+        rng = np.random.default_rng(seed)
+        if rng.random() > 0.5:
+            arr = np.fliplr(arr)
+
+    # Normalize (H, W, C)
+    arr = (arr - IMAGENET_MEAN) / IMAGENET_STD
+    # Convert to (C, H, W)
+    tensor = torch.from_numpy(arr.transpose(2, 0, 1).copy())
+    return tensor
+
+
+class ImageDataset(Dataset):
+    """
+    PyTorch Dataset reading images defined in a GuardianEye manifest DataFrame.
+
+    Parameters
+    ----------
+    manifest_df:
+        DataFrame containing manifest rows for image files.
+    data_root:
+        Path to the root data directory.
+    target_size:
+        Tuple of (height, width) for image resizing (default (224, 224)).
+    is_train:
+        Whether training augmentations should be enabled.
+
+    """
+
+    def __init__(
+        self,
+        manifest_df: pd.DataFrame,
+        data_root: Path | str,
+        target_size: tuple[int, int] = (224, 224),
+        is_train: bool = False,
+    ) -> None:
+        super().__init__()
+        self.data_root = Path(data_root)
+        self.target_size = target_size
+        self.is_train = is_train
+
+        # Filter strictly to image modality rows
+        if "modality" in manifest_df.columns:
+            self.df = manifest_df[manifest_df["modality"] == "image"].reset_index(
+                names="manifest_idx"
+            )
+        else:
+            self.df = manifest_df.reset_index(names="manifest_idx")
+
+    def __len__(self) -> int:
+        return len(self.df)
+
+    def __getitem__(self, idx: int) -> dict[str, Any]:
+        row = self.df.iloc[idx]
+        rel_path = row["path"]
+        full_path = self.data_root / rel_path
+
+        label_str = row["label"]
+        if label_str not in IMAGE_CLASS_TO_IDX:
+            raise ValueError(f"Unknown image class label: {label_str}")
+        label_idx = IMAGE_CLASS_TO_IDX[label_str]
+
+        manifest_idx = int(row.get("manifest_idx", idx))
+        view = str(row.get("view", "unknown"))
+
+        try:
+            with Image.open(full_path) as img:
+                tensor = preprocess_image(
+                    img,
+                    target_size=self.target_size,
+                    is_train=self.is_train,
+                )
+        except Exception as exc:
+            logger.error("Failed to load image %s: %s", full_path, exc)
+            raise
+
+        return {
+            "image": tensor,
+            "label": torch.tensor(label_idx, dtype=torch.long),
+            "manifest_idx": manifest_idx,
+            "path": rel_path,
+            "view": view,
+            "label_str": label_str,
+        }
+  
+===== src\image\evaluate.py =====  
+"""
+Evaluation routine for GuardianEye image branch.
+
+Computes:
+- Overall accuracy and macro F1
+- Per-class precision, recall, and F1 (human, vehicle, animal, empty)
+- Per-view breakdown: aerial_thermal vs camera_trap
+- Strict zero-denominator honesty: undefined metrics are stored as None/null,
+  views or classes with 0 test instances are recorded as NOT YET RUN.
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+import torch
+from torch.utils.data import DataLoader
+
+from src.evaluation.metrics import (
+    compute_image_view_metrics,
+    compute_multiclass_image_metrics,
+)
+from src.image.dataset import ImageDataset
+from src.models import IMAGE_CLASSES
+
+logger = logging.getLogger(__name__)
+
+
+def evaluate_image_model(
+    model: torch.nn.Module,
+    test_df: pd.DataFrame,
+    data_root: Path | str,
+    device: torch.device,
+    batch_size: int = 32,
+) -> dict[str, Any]:
+    """
+    Evaluate trained ImageEncoder exclusively on test_df.
+
+    Returns dictionary formatted for serialization to image_metrics.json.
+    """
+    model.eval()
+
+    if len(test_df) == 0:
+        logger.warning("Empty test DataFrame passed to evaluate_image_model.")
+        return {
+            "status": "NOT YET RUN",
+            "reason": "Test set contains 0 samples.",
+            "overall": {
+                "count": 0,
+                "accuracy": None,
+                "f1_macro": None,
+                "per_class": {
+                    c: {"status": "NOT YET RUN", "reason": "No test samples."}
+                    for c in IMAGE_CLASSES
+                },
+            },
+            "by_view": {
+                "aerial_thermal": {
+                    "status": "NOT YET RUN",
+                    "reason": "No test samples.",
+                },
+                "camera_trap": {
+                    "status": "NOT YET RUN",
+                    "reason": "No test samples.",
+                },
+            },
+        }
+
+    dataset = ImageDataset(test_df, data_root=data_root, is_train=False)
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+
+    all_preds: list[int] = []
+    all_targets: list[int] = []
+    all_views: list[str] = []
+
+    with torch.no_grad():
+        for batch in loader:
+            imgs = batch["image"].to(device)
+            labels = batch["label"]
+            views = batch["view"]
+
+            logits = model(imgs, return_embedding=False)
+            preds = torch.argmax(logits, dim=-1).cpu().tolist()
+
+            all_preds.extend(preds)
+            all_targets.extend(labels.tolist())
+            all_views.extend(views)
+
+    # Compute overall multiclass metrics
+    overall_metrics = compute_multiclass_image_metrics(
+        y_true=all_targets,
+        y_pred=all_preds,
+        class_names=IMAGE_CLASSES,
+    )
+
+    # Compute per-view breakdown
+    eval_df = pd.DataFrame(
+        {
+            "label_idx": all_targets,
+            "pred_idx": all_preds,
+            "view": all_views,
+        }
+    )
+    view_metrics = compute_image_view_metrics(eval_df, class_names=IMAGE_CLASSES)
+
+    return {
+        "status": "OK",
+        "count": len(all_targets),
+        "overall": overall_metrics,
+        "by_view": view_metrics,
+    }
+  
+===== src\image\train.py =====  
+"""
+Training routine for GuardianEye image branch.
+
+Features:
+- Class-weighted CrossEntropyLoss: w_c = N / (K * n_c), missing classes get weight 0.0
+- Epoch checkpointing with atomic saving and resumption
+- Model selection via validation split macro F1
+- Resumable optimizer, epoch, config, and seed tracking
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pandas as pd
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
+
+from src.checkpoint import find_latest_checkpoint, load_checkpoint, save_checkpoint
+from src.config import GuardianEyeConfig
+from src.evaluation.metrics import compute_multiclass_image_metrics
+from src.image.dataset import ImageDataset
+from src.models import IMAGE_CLASSES, ImageEncoder
+
+logger = logging.getLogger(__name__)
+
+
+def compute_image_class_weights(
+    df: pd.DataFrame,
+    class_names: list[str] = IMAGE_CLASSES,
+) -> torch.Tensor:
+    """
+    Compute inverse frequency class weights: w_c = N / (K * n_c).
+
+    If a class has 0 samples, logs a warning and assigns weight 0.0
+    to avoid division by zero and degenerate loss behavior.
+    """
+    k = len(class_names)
+    weights = torch.zeros(k, dtype=torch.float32)
+
+    if len(df) == 0:
+        logger.warning("Empty training DataFrame provided for class weights.")
+        return weights
+
+    counts: dict[str, int] = df["label"].value_counts().to_dict()
+    total_samples = len(df)
+
+    for idx, c in enumerate(class_names):
+        count = counts.get(c, 0)
+        if count == 0:
+            logger.warning(
+                "Training data has 0 instances of '%s'. Setting weight 0.0.",
+                c,
+            )
+            weights[idx] = 0.0
+        else:
+            weights[idx] = float(total_samples / (k * count))
+
+    return weights
+
+
+def train_image_epoch(
+    model: nn.Module,
+    loader: DataLoader,
+    optimizer: torch.optim.Optimizer,
+    criterion: nn.Module,
+    device: torch.device,
+) -> float:
+    """Train for a single epoch and return average loss."""
+    model.train()
+    total_loss = 0.0
+    steps = 0
+
+    for batch in loader:
+        images = batch["image"].to(device)
+        labels = batch["label"].to(device)
+
+        optimizer.zero_grad()
+        logits = model(images, return_embedding=False)
+        loss = criterion(logits, labels)
+
+        loss.backward()
+        optimizer.step()
+
+        total_loss += loss.item()
+        steps += 1
+
+    return total_loss / steps if steps > 0 else 0.0
+
+
+def validate_image_epoch(
+    model: nn.Module,
+    loader: DataLoader,
+    criterion: nn.Module,
+    device: torch.device,
+) -> tuple[float, float | None]:
+    """Validate on validation set; return (val_loss, val_macro_f1)."""
+    model.eval()
+    total_loss = 0.0
+    steps = 0
+    all_preds: list[int] = []
+    all_targets: list[int] = []
+
+    with torch.no_grad():
+        for batch in loader:
+            images = batch["image"].to(device)
+            labels = batch["label"].to(device)
+
+            logits = model(images, return_embedding=False)
+            loss = criterion(logits, labels)
+
+            total_loss += loss.item()
+            steps += 1
+
+            preds = torch.argmax(logits, dim=-1).cpu().tolist()
+            all_preds.extend(preds)
+            all_targets.extend(labels.cpu().tolist())
+
+    val_loss = total_loss / steps if steps > 0 else 0.0
+    metrics = compute_multiclass_image_metrics(
+        all_targets, all_preds, class_names=IMAGE_CLASSES
+    )
+    val_f1 = metrics.get("f1_macro")
+
+    return val_loss, val_f1
+
+
+def train_image_model(
+    train_df: pd.DataFrame,
+    val_df: pd.DataFrame,
+    data_root: Path | str,
+    cfg: GuardianEyeConfig,
+    seed: int,
+    device: torch.device,
+    checkpoint_dir: Path | str,
+    epochs: int | None = None,
+    batch_size: int | None = None,
+    resume: bool = True,
+) -> tuple[ImageEncoder, dict[str, Any]]:
+    """Train ImageEncoder on train_df, validate on val_df, and save checkpoints."""
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+
+    ckpt_dir = Path(checkpoint_dir)
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+    n_epochs = epochs or cfg.image.epochs
+    bs = batch_size or cfg.image.batch_size
+
+    # Instantiate model
+    model = ImageEncoder(
+        num_classes=cfg.image.num_classes,
+        embedding_dim=cfg.image.embedding_dim,
+        use_pretrained=cfg.image.pretrained,
+    ).to(device)
+
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=cfg.image.lr,
+        weight_decay=cfg.image.weight_decay,
+    )
+
+    # Compute class weights
+    class_weights = compute_image_class_weights(train_df, IMAGE_CLASSES).to(device)
+    criterion = nn.CrossEntropyLoss(weight=class_weights)
+
+    # Prepare datasets and loaders
+    train_dataset = ImageDataset(train_df, data_root=data_root, is_train=True)
+    val_dataset = ImageDataset(val_df, data_root=data_root, is_train=False)
+
+    train_loader = DataLoader(
+        train_dataset, batch_size=bs, shuffle=True, num_workers=0
+    )
+    val_loader = DataLoader(val_dataset, batch_size=bs, shuffle=False, num_workers=0)
+
+    start_epoch = 0
+    best_val_metric: float = -1.0
+    history: list[dict[str, Any]] = []
+
+    # Check for resumable checkpoint
+    if resume:
+        latest = find_latest_checkpoint(ckpt_dir)
+        if latest is not None:
+            state = load_checkpoint(latest)
+            model.load_state_dict(state["model_state"])
+            optimizer.load_state_dict(state["optimizer_state"])
+            start_epoch = state["epoch"] + 1
+            best_val_metric = state.get("best_val_metric", -1.0)
+            logger.info("Resumed image training from epoch %d", state["epoch"])
+
+    for epoch in range(start_epoch, n_epochs):
+        train_loss = train_image_epoch(
+            model, train_loader, optimizer, criterion, device
+        )
+        val_loss, val_f1 = validate_image_epoch(
+            model, val_loader, criterion, device
+        )
+
+        metric_for_selection = val_f1 if val_f1 is not None else -val_loss
+        is_best = metric_for_selection > best_val_metric
+        if is_best:
+            best_val_metric = metric_for_selection
+
+        logger.info(
+            "Epoch [%d/%d] Train Loss: %.4f | Val Loss: %.4f | Val F1: %s (best: %.4f)",
+            epoch,
+            n_epochs - 1,
+            train_loss,
+            val_loss,
+            f"{val_f1:.4f}" if val_f1 is not None else "null",
+            best_val_metric,
+        )
+
+        state = {
+            "model_state": model.state_dict(),
+            "optimizer_state": optimizer.state_dict(),
+            "epoch": epoch,
+            "config": cfg.model_dump(),
+            "seed": seed,
+            "best_val_metric": best_val_metric,
+            "metrics": {
+                "train_loss": train_loss,
+                "val_loss": val_loss,
+                "val_f1": val_f1,
+            },
+        }
+
+        # Save regular epoch checkpoint
+        save_checkpoint(state, ckpt_dir, epoch)
+
+        # Save best checkpoint
+        if is_best:
+            save_checkpoint(state, ckpt_dir, epoch, filename="best_model.pt")
+
+        history.append(
+            {
+                "epoch": epoch,
+                "train_loss": train_loss,
+                "val_loss": val_loss,
+                "val_f1": val_f1,
+            }
+        )
+
+    # Load best checkpoint if saved
+    best_path = ckpt_dir / "best_model.pt"
+    if best_path.exists():
+        best_state = load_checkpoint(best_path)
+        model.load_state_dict(best_state["model_state"])
+        logger.info("Loaded best image model from %s", best_path)
+
+    return model, {"history": history, "best_val_metric": best_val_metric}
+  
+===== src\image\__init__.py =====  
+"""GuardianEye image branch package."""
+
+from src.image.dataset import ImageDataset, preprocess_image
+from src.image.evaluate import evaluate_image_model
+from src.image.train import compute_image_class_weights, train_image_model
+from src.models import IMAGE_CLASS_TO_IDX, IMAGE_CLASSES, ImageEncoder
+
+__all__ = [
+    "ImageDataset",
+    "preprocess_image",
+    "evaluate_image_model",
+    "compute_image_class_weights",
+    "train_image_model",
+    "IMAGE_CLASSES",
+    "IMAGE_CLASS_TO_IDX",
+    "ImageEncoder",
+]
+  
+===== src\checkpoint.py =====  
+"""
+Shared checkpointing utilities for GuardianEye training modules.
+
+Convention
+----------
+All training scripts in later phases **must** use these helpers to ensure a
+consistent checkpoint format and safe atomic writes.
+
+Checkpoint format
+-----------------
+Each checkpoint is a ``dict`` saved with ``torch.save`` containing at minimum:
+
+``model_state``
+    ``model.state_dict()`` — the model weights.
+``optimizer_state``
+    ``optimizer.state_dict()`` — the optimiser state.
+``epoch``
+    Integer epoch index (0-based) that just completed.
+``config``
+    Serialisable snapshot of the training configuration (e.g. a
+    ``GuardianEyeConfig.model_dump()`` dict).
+``seed``
+    Integer random seed used for this run.
+
+Optional keys (include when applicable):
+``scheduler_state``
+    ``scheduler.state_dict()`` for LR schedulers.
+``scaler_state``
+    ``scaler.state_dict()`` for ``torch.cuda.amp.GradScaler``.
+
+Naming convention
+-----------------
+Checkpoints are stored under ``{results_root}/checkpoints/{prefix}/`` and
+follow the pattern ``epoch_{epoch:04d}.pt``.  The *latest* checkpoint for a
+given prefix is the one with the highest epoch number.
+
+Atomic writes
+-------------
+Each checkpoint is first written to a ``.tmp`` file alongside the target path
+and then renamed, so an interrupted write never corrupts the previous saved
+state.
+
+Usage example (in a future training module)
+-------------------------------------------
+>>> from src.checkpoint import save_checkpoint, find_latest_checkpoint, load_checkpoint
+>>> ckpt_dir = cfg.paths.results_root / "checkpoints" / "image_branch"
+>>>
+>>> # Resume if possible
+>>> latest = find_latest_checkpoint(ckpt_dir)
+>>> start_epoch = 0
+>>> if latest:
+...     state = load_checkpoint(latest)
+...     model.load_state_dict(state["model_state"])
+...     optimizer.load_state_dict(state["optimizer_state"])
+...     start_epoch = state["epoch"] + 1
+...     logger.info("Resumed from epoch %d", state["epoch"])
+>>> else:
+...     logger.info("Starting training from scratch")
+>>>
+>>> for epoch in range(start_epoch, cfg.image.epochs):
+...     # ... training loop ...
+...     save_checkpoint(
+...         state={
+...             "model_state": model.state_dict(),
+...             "optimizer_state": optimizer.state_dict(),
+...             "epoch": epoch,
+...             "config": cfg.model_dump(),
+...             "seed": cfg.reproducibility.seeds[0],
+...         },
+...         checkpoint_dir=ckpt_dir,
+...         epoch=epoch,
+...     )
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+from pathlib import Path
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+_EPOCH_RE = re.compile(r"^epoch_(\d{4,})\.pt$")
+
+
+def save_checkpoint(
+    state: dict[str, Any],
+    checkpoint_dir: Path | str,
+    epoch: int,
+    filename: str | None = None,
+) -> Path:
+    """
+    Save a training checkpoint atomically.
+
+    The checkpoint is written to a temporary file first, then renamed to the
+    final path.  This ensures that an interrupted write does not corrupt the
+    previous checkpoint.
+
+    Parameters
+    ----------
+    state:
+        Dictionary containing at least ``model_state``, ``optimizer_state``,
+        ``epoch``, ``config``, and ``seed``.
+    checkpoint_dir:
+        Directory in which to save the checkpoint.  Created if absent.
+    epoch:
+        Zero-based epoch index that just completed.
+    filename:
+        Optional filename. If not provided, defaults to ``epoch_{epoch:04d}.pt``.
+
+    Returns
+    -------
+    Path
+        Path to the saved checkpoint file.
+
+    Raises
+    ------
+    ValueError
+        If required keys are missing from ``state``.
+
+    """
+    import torch  # deferred import — keeps CPU-only imports fast
+
+    _validate_state(state)
+
+    ckpt_dir = Path(checkpoint_dir)
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+    if filename is not None:
+        target = ckpt_dir / filename
+    else:
+        target = ckpt_dir / f"epoch_{epoch:04d}.pt"
+    tmp = target.with_suffix(".tmp")
+
+    torch.save(state, tmp)
+    tmp.replace(target)  # atomic overwrite across POSIX and Windows
+
+    logger.info("Checkpoint saved: %s (epoch %d)", target, epoch)
+    return target
+
+
+def load_checkpoint(path: Path | str) -> dict[str, Any]:
+    """
+    Load a checkpoint from disk.
+
+    Parameters
+    ----------
+    path:
+        Path to a ``.pt`` checkpoint file.
+
+    Returns
+    -------
+    dict[str, Any]
+        The checkpoint state dictionary.
+
+    Raises
+    ------
+    FileNotFoundError
+        If ``path`` does not exist.
+
+    """
+    import torch  # deferred import
+
+    ckpt_path = Path(path)
+    if not ckpt_path.exists():
+        raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
+
+    state: dict[str, Any] = torch.load(
+        ckpt_path, map_location="cpu", weights_only=False
+    )
+    logger.info("Checkpoint loaded: %s (epoch %d)", ckpt_path, state.get("epoch", "?"))
+    return state
+
+
+def find_latest_checkpoint(checkpoint_dir: Path | str) -> Path | None:
+    """
+    Return the path to the most recent checkpoint in a directory.
+
+    Scans ``checkpoint_dir`` for files matching ``epoch_NNNN.pt`` and returns
+    the one with the highest epoch number.  Returns ``None`` when the directory
+    does not exist or contains no valid checkpoints.
+
+    Parameters
+    ----------
+    checkpoint_dir:
+        Directory to search.
+
+    Returns
+    -------
+    Path | None
+        Path to the latest checkpoint, or ``None``.
+
+    """
+    ckpt_dir = Path(checkpoint_dir)
+    if not ckpt_dir.is_dir():
+        logger.debug("Checkpoint directory not found: %s", ckpt_dir)
+        return None
+
+    candidates: list[tuple[int, Path]] = []
+    for p in ckpt_dir.iterdir():
+        m = _EPOCH_RE.match(p.name)
+        if m:
+            candidates.append((int(m.group(1)), p))
+
+    if not candidates:
+        logger.debug("No checkpoints found in: %s", ckpt_dir)
+        return None
+
+    candidates.sort(key=lambda t: t[0])
+    latest_epoch, latest_path = candidates[-1]
+    logger.info(
+        "Latest checkpoint: %s (epoch %d)", latest_path, latest_epoch
+    )
+    return latest_path
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+_REQUIRED_KEYS: frozenset[str] = frozenset(
+    {"model_state", "optimizer_state", "epoch", "config", "seed"}
+)
+
+
+def _validate_state(state: dict[str, Any]) -> None:
+    """Raise ``ValueError`` if required checkpoint keys are missing."""
+    missing = _REQUIRED_KEYS - set(state)
+    if missing:
+        raise ValueError(
+            f"Checkpoint state is missing required keys: {sorted(missing)}"
+        )
+  
+===== src\decisions.py =====  
+"""
+GuardianEye risk decision rules.
+
+This module contains two pure functions that map (image_label, audio_label)
+pairs to a binary suspicious flag and a categorical risk level.
+
+Labels
+------
+Valid image labels  : ``"human"``, ``"vehicle"``, ``"animal"``, ``"empty"``
+Valid audio labels  : ``"gunshot"``, ``"background"``
+
+Risk rules
+----------
+HIGH   : image ∈ {human, vehicle}  AND  audio == gunshot  → suspicious = 1
+MEDIUM : exactly one strong indicator present:
+         - image ∈ {human, vehicle}  AND  audio == background
+         - image == animal           AND  audio == gunshot
+         → suspicious = 0
+LOW    : image ∈ {animal, empty}    AND  audio == background
+         → suspicious = 0
+         (Includes ESC-50 thunderstorm/wind/rain clips that are labelled as
+         *background* with a ``noise_tag`` of ``"thunder_wind"``.  Because
+         these clips carry no gunshot audio, they are correctly classified LOW.
+         The ``noise_tag`` metadata is **not** a positional argument here; it
+         is handled upstream in the data pipeline and does not change the
+         risk output.)
+
+Vehicle + background policy
+----------------------------
+A vehicle without gunshot audio is classified MEDIUM, not HIGH.  The presence
+of a vehicle alone is a single strong indicator and insufficient evidence for
+an immediate alert.
+
+Noise-tag note
+--------------
+ESC-50 clips tagged as ``thunder_wind`` are kept as ``"background"`` throughout
+the pipeline (they are *never* relabelled as ``"gunshot"``).  When paired with
+an ``"empty"`` image they produce a LOW risk score, exactly matching the last
+row of the required scenario table.  Tests for this scenario pass
+``image_label="empty"`` and ``audio_label="background"``; no third argument is
+needed.
+"""
+
+from __future__ import annotations
+
+_VALID_IMAGE_LABELS: frozenset[str] = frozenset({"human", "vehicle", "animal", "empty"})
+_VALID_AUDIO_LABELS: frozenset[str] = frozenset({"gunshot", "background"})
+
+_STRONG_IMAGE: frozenset[str] = frozenset({"human", "vehicle"})
+
+
+def _validate(image_label: str, audio_label: str) -> None:
+    """
+    Raise ``ValueError`` when either label is unknown.
+
+    Parameters
+    ----------
+    image_label:
+        Predicted class from the image branch.
+    audio_label:
+        Predicted class from the audio branch.
+
+    Raises
+    ------
+    ValueError
+        If ``image_label`` or ``audio_label`` is not a recognised value.
+
+    """
+    if image_label not in _VALID_IMAGE_LABELS:
+        raise ValueError(
+            f"Unknown image_label {image_label!r}. "
+            f"Must be one of {sorted(_VALID_IMAGE_LABELS)}."
+        )
+    if audio_label not in _VALID_AUDIO_LABELS:
+        raise ValueError(
+            f"Unknown audio_label {audio_label!r}. "
+            f"Must be one of {sorted(_VALID_AUDIO_LABELS)}."
+        )
+
+
+def suspicious(image_label: str, audio_label: str) -> int:
+    """
+    Return 1 when the scene is classified as suspicious, else 0.
+
+    A scene is suspicious only when **both** a strong image indicator
+    (human or vehicle) and a gunshot audio signal are present simultaneously.
+
+    Parameters
+    ----------
+    image_label:
+        Predicted label from the image branch.
+        One of ``"human"``, ``"vehicle"``, ``"animal"``, ``"empty"``.
+    audio_label:
+        Predicted label from the audio branch.
+        One of ``"gunshot"``, ``"background"``.
+
+    Returns
+    -------
+    int
+        ``1`` if suspicious, ``0`` otherwise.
+
+    Raises
+    ------
+    ValueError
+        If either label is not recognised.
+
+    Examples
+    --------
+    >>> suspicious("human", "gunshot")
+    1
+    >>> suspicious("animal", "gunshot")
+    0
+    >>> suspicious("vehicle", "background")
+    0
+
+    """
+    _validate(image_label, audio_label)
+    return int(image_label in _STRONG_IMAGE and audio_label == "gunshot")
+
+
+def risk(image_label: str, audio_label: str) -> str:
+    """
+    Return a categorical risk level for the given label pair.
+
+    Parameters
+    ----------
+    image_label:
+        Predicted label from the image branch.
+        One of ``"human"``, ``"vehicle"``, ``"animal"``, ``"empty"``.
+    audio_label:
+        Predicted label from the audio branch.
+        One of ``"gunshot"``, ``"background"``.
+
+    Returns
+    -------
+    str
+        One of ``"HIGH"``, ``"MEDIUM"``, or ``"LOW"``.
+
+    Raises
+    ------
+    ValueError
+        If either label is not recognised.
+
+    Examples
+    --------
+    >>> risk("human", "gunshot")
+    'HIGH'
+    >>> risk("animal", "gunshot")
+    'MEDIUM'
+    >>> risk("empty", "background")
+    'LOW'
+
+    """
+    _validate(image_label, audio_label)
+
+    # HIGH — both a strong image indicator and gunshot audio
+    if image_label in _STRONG_IMAGE and audio_label == "gunshot":
+        return "HIGH"
+
+    # MEDIUM — exactly one strong indicator
+    if image_label in _STRONG_IMAGE and audio_label == "background":
+        return "MEDIUM"
+    if image_label == "animal" and audio_label == "gunshot":
+        return "MEDIUM"
+
+    # LOW — animal or empty with background (covers thunder_wind tagged clips)
+    return "LOW"
+  
+===== src\bda\mapper_class.py =====  
+"""
+Class-count mapper for Hadoop-streaming-style BDA jobs.
+
+Reads manifest CSV lines and emits ``(modality, source, label) → 1`` pairs.
+Can be used as a standalone script via ``python -m src.bda.mapper_class``
+which reads from stdin and writes to stdout, exactly as Hadoop Streaming
+would invoke it.
+"""
+
+from __future__ import annotations
+
+import csv
+import io
+import logging
+import sys
+from collections.abc import Iterator
+
+logger = logging.getLogger(__name__)
+
+# Manifest columns we need — index positions in the CSV header
+_COL_MODALITY = "modality"
+_COL_SOURCE = "source"
+_COL_LABEL = "label"
+
+_REQUIRED_COLUMNS = frozenset({_COL_MODALITY, _COL_SOURCE, _COL_LABEL})
+
+
+class ClassCountMapper:
+    r"""Mapper that emits ``(modality\tsource\tlabel) \t 1`` per manifest row."""
+
+    def __init__(self) -> None:
+        self._header: list[str] | None = None
+        self._col_indices: dict[str, int] = {}
+        self._rows_processed = 0
+        self._rows_skipped = 0
+
+    def set_header(self, header_line: str) -> None:
+        """
+        Parse the CSV header and cache column indices.
+
+        Parameters
+        ----------
+        header_line:
+            The first line of the manifest CSV.
+
+        """
+        reader = csv.reader(io.StringIO(header_line.strip()))
+        self._header = next(reader, None)
+        if self._header is None:
+            logger.warning("Empty header line in class-count mapper")
+            return
+        self._col_indices = {
+            col: idx for idx, col in enumerate(self._header)
+        }
+        missing = _REQUIRED_COLUMNS - set(self._col_indices.keys())
+        if missing:
+            logger.warning("Manifest header missing columns: %s", sorted(missing))
+
+    def map(self, line: str) -> Iterator[tuple[str, str]]:
+        r"""
+        Parse a manifest CSV line and emit a key-value pair.
+
+        Parameters
+        ----------
+        line:
+            A single CSV data row (not the header).
+
+        Yields
+        ------
+        tuple[str, str]
+            ``(key, value)`` where key is ``"modality\tsource\tlabel"``
+            and value is ``"1"``.
+
+        """
+        stripped = line.strip()
+        if not stripped:
+            return
+
+        reader = csv.reader(io.StringIO(stripped))
+        fields = next(reader, None)
+        if fields is None:
+            self._rows_skipped += 1
+            return
+
+        try:
+            modality = fields[self._col_indices[_COL_MODALITY]]
+            source = fields[self._col_indices[_COL_SOURCE]]
+            label = fields[self._col_indices[_COL_LABEL]]
+        except (KeyError, IndexError):
+            self._rows_skipped += 1
+            logger.debug("Skipping malformed row: %s", stripped)
+            return
+
+        if not modality or not source or not label:
+            self._rows_skipped += 1
+            logger.debug("Skipping row with empty fields: %s", stripped)
+            return
+
+        self._rows_processed += 1
+        key = f"{modality}\t{source}\t{label}"
+        yield (key, "1")
+
+    @property
+    def rows_processed(self) -> int:
+        """Return the number of rows successfully processed."""
+        return self._rows_processed
+
+    @property
+    def rows_skipped(self) -> int:
+        """Return the number of rows skipped due to errors."""
+        return self._rows_skipped
+
+
+def main() -> None:
+    """Run as a Hadoop Streaming mapper: read stdin, write to stdout."""
+    mapper = ClassCountMapper()
+    first_line = True
+    for line in sys.stdin:
+        if first_line:
+            mapper.set_header(line)
+            first_line = False
+            continue
+        for key, value in mapper.map(line):
+            sys.stdout.write(f"{key}\t{value}\n")
+
+
+if __name__ == "__main__":
+    main()
+  
+===== src\bda\mapper_metric.py =====  
+"""
+Metric mapper for Hadoop-streaming-style BDA jobs.
+
+Reads evaluation metrics JSON entries and emits
+``(method, condition, metric_name) → value`` pairs.
+
+Metrics with undefined values (None / null) are **not emitted**, so the
+downstream reducer never counts them.
+
+Can be used as a standalone script via ``python -m src.bda.mapper_metric``
+which reads JSON lines from stdin and writes to stdout.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import sys
+from collections.abc import Iterator
+
+logger = logging.getLogger(__name__)
+
+_REQUIRED_KEYS = frozenset({"method", "condition", "metric", "value"})
+
+
+class MetricMapper:
+    r"""Mapper that emits ``(method\tcondition\tmetric) \t value`` per metric entry."""
+
+    def __init__(self) -> None:
+        self._rows_processed = 0
+        self._rows_skipped = 0
+
+    def map(self, line: str) -> Iterator[tuple[str, str]]:
+        r"""
+        Parse a JSON metric entry and emit a key-value pair.
+
+        Parameters
+        ----------
+        line:
+            A single JSON object string representing one metric record.
+
+        Yields
+        ------
+        tuple[str, str]
+            ``(key, value)`` where key is ``"method\tcondition\tmetric"``
+            and value is a string representation of the numeric metric value.
+
+        """
+        stripped = line.strip()
+        if not stripped:
+            return
+
+        try:
+            record = json.loads(stripped)
+        except json.JSONDecodeError:
+            self._rows_skipped += 1
+            logger.debug("Skipping non-JSON line: %s", stripped[:100])
+            return
+
+        if not isinstance(record, dict):
+            self._rows_skipped += 1
+            return
+
+        missing = _REQUIRED_KEYS - set(record.keys())
+        if missing:
+            self._rows_skipped += 1
+            logger.debug("Metric record missing keys: %s", sorted(missing))
+            return
+
+        # Skip undefined metrics (zero-denominator honesty)
+        value = record["value"]
+        if value is None:
+            self._rows_skipped += 1
+            return
+
+        method = str(record["method"])
+        condition = str(record["condition"])
+        metric_name = str(record["metric"])
+
+        self._rows_processed += 1
+        key = f"{method}\t{condition}\t{metric_name}"
+        yield (key, str(value))
+
+    @property
+    def rows_processed(self) -> int:
+        """Return the number of rows successfully processed."""
+        return self._rows_processed
+
+    @property
+    def rows_skipped(self) -> int:
+        """Return the number of rows skipped due to errors."""
+        return self._rows_skipped
+
+
+def map_from_json_array(json_path: str) -> Iterator[tuple[str, str]]:
+    """
+    Read a JSON array file and yield all mapper outputs.
+
+    Parameters
+    ----------
+    json_path:
+        Path to a JSON file containing an array of metric records.
+
+    Yields
+    ------
+    tuple[str, str]
+        Key-value pairs from each record.
+
+    """
+    mapper = MetricMapper()
+    with open(json_path) as fh:
+        records = json.load(fh)
+
+    if not isinstance(records, list):
+        records = [records]
+
+    for record in records:
+        line = json.dumps(record)
+        yield from mapper.map(line)
+
+
+def main() -> None:
+    """Run as a Hadoop Streaming mapper: read JSON lines from stdin, write to stdout."""
+    mapper = MetricMapper()
+    for line in sys.stdin:
+        for key, value in mapper.map(line):
+            sys.stdout.write(f"{key}\t{value}\n")
+
+
+if __name__ == "__main__":
+    main()
+  
+===== src\bda\mapper_scenario.py =====  
+"""
+Scenario mapper for Hadoop-streaming-style BDA jobs.
+
+Reads scenario/pairing CSV lines and emits
+``(split, scenario, suspicious, risk) → 1`` pairs.
+
+Can be used as a standalone script via ``python -m src.bda.mapper_scenario``
+which reads from stdin and writes to stdout.
+"""
+
+from __future__ import annotations
+
+import csv
+import io
+import logging
+import sys
+from collections.abc import Iterator
+
+logger = logging.getLogger(__name__)
+
+_COL_SPLIT = "split"
+_COL_SCENARIO = "scenario"
+_COL_SUSPICIOUS = "suspicious"
+_COL_RISK = "risk"
+
+_REQUIRED_COLUMNS = frozenset({_COL_SPLIT, _COL_SCENARIO, _COL_SUSPICIOUS, _COL_RISK})
+
+
+class ScenarioMapper:
+    r"""Mapper that emits ``(split\tscenario\tsuspicious\trisk) \t 1`` per scenario row."""
+
+    def __init__(self) -> None:
+        self._header: list[str] | None = None
+        self._col_indices: dict[str, int] = {}
+        self._rows_processed = 0
+        self._rows_skipped = 0
+
+    def set_header(self, header_line: str) -> None:
+        """
+        Parse the CSV header and cache column indices.
+
+        Parameters
+        ----------
+        header_line:
+            The first line of the scenario CSV.
+
+        """
+        reader = csv.reader(io.StringIO(header_line.strip()))
+        self._header = next(reader, None)
+        if self._header is None:
+            return
+        self._col_indices = {
+            col: idx for idx, col in enumerate(self._header)
+        }
+        missing = _REQUIRED_COLUMNS - set(self._col_indices.keys())
+        if missing:
+            logger.warning("Scenario header missing columns: %s", sorted(missing))
+
+    def map(self, line: str) -> Iterator[tuple[str, str]]:
+        r"""
+        Parse a scenario CSV line and emit a key-value pair.
+
+        Parameters
+        ----------
+        line:
+            A single CSV data row (not the header).
+
+        Yields
+        ------
+        tuple[str, str]
+            ``(key, value)`` where key is ``"split\tscenario\tsuspicious\trisk"``
+            and value is ``"1"``.
+
+        """
+        stripped = line.strip()
+        if not stripped:
+            return
+
+        reader = csv.reader(io.StringIO(stripped))
+        fields = next(reader, None)
+        if fields is None:
+            self._rows_skipped += 1
+            return
+
+        try:
+            split = fields[self._col_indices[_COL_SPLIT]]
+            scenario = fields[self._col_indices[_COL_SCENARIO]]
+            suspicious = fields[self._col_indices[_COL_SUSPICIOUS]]
+            risk_level = fields[self._col_indices[_COL_RISK]]
+        except (KeyError, IndexError):
+            self._rows_skipped += 1
+            logger.debug("Skipping malformed scenario row: %s", stripped)
+            return
+
+        self._rows_processed += 1
+        key = f"{split}\t{scenario}\t{suspicious}\t{risk_level}"
+        yield (key, "1")
+
+    @property
+    def rows_processed(self) -> int:
+        """Return the number of rows successfully processed."""
+        return self._rows_processed
+
+    @property
+    def rows_skipped(self) -> int:
+        """Return the number of rows skipped due to errors."""
+        return self._rows_skipped
+
+
+def main() -> None:
+    """Run as a Hadoop Streaming mapper: read stdin, write to stdout."""
+    mapper = ScenarioMapper()
+    first_line = True
+    for line in sys.stdin:
+        if first_line:
+            mapper.set_header(line)
+            first_line = False
+            continue
+        for key, value in mapper.map(line):
+            sys.stdout.write(f"{key}\t{value}\n")
+
+
+if __name__ == "__main__":
+    main()
+  
+===== src\bda\reducer_metric.py =====  
+"""
+Metric reducer for Hadoop-streaming-style BDA jobs.
+
+For each ``(method, condition, metric_name)`` key, computes:
+
+- **n**: count of values
+- **mean**: arithmetic mean
+- **sample_std**: ``sqrt(sum((x - mean)^2) / (n - 1))`` when n ≥ 2;
+  empty string when n < 2
+
+Can be used as a standalone script via ``python -m src.bda.reducer_metric``
+which reads sorted tab-separated input from stdin and writes to stdout.
+"""
+
+from __future__ import annotations
+
+import logging
+import math
+import sys
+from collections.abc import Iterator
+
+logger = logging.getLogger(__name__)
+
+
+class MetricReducer:
+    """Reducer that computes n, mean, and sample standard deviation for each key."""
+
+    def reduce(self, key: str, values: Iterator[str]) -> Iterator[str]:
+        r"""
+        Compute summary statistics for a group of metric values.
+
+        Parameters
+        ----------
+        key:
+            The grouping key (``"method\tcondition\tmetric"``).
+        values:
+            Iterator of string-encoded float values.
+
+        Yields
+        ------
+        str
+            ``"key\tn\tmean\tsample_std"`` line.  ``sample_std`` is empty
+            when n < 2.
+
+        """
+        nums: list[float] = []
+        for v in values:
+            try:
+                nums.append(float(v.strip()))
+            except ValueError:
+                logger.debug("Non-numeric value for key %r: %r", key, v)
+
+        n = len(nums)
+        if n == 0:
+            return
+
+        mean = sum(nums) / n
+
+        if n >= 2:
+            variance = sum((x - mean) ** 2 for x in nums) / (n - 1)
+            sample_std = str(math.sqrt(variance))
+        else:
+            sample_std = ""
+
+        yield f"{key}\t{n}\t{mean}\t{sample_std}"
+
+
+def main() -> None:
+    """Run as a Hadoop Streaming reducer: read sorted stdin, write to stdout."""
+    reducer = MetricReducer()
+    current_key: str | None = None
+    current_values: list[str] = []
+
+    for line in sys.stdin:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # The key has 3 tab-separated fields; value is the 4th
+        parts = stripped.split("\t")
+        if len(parts) < 4:
+            continue
+        key = "\t".join(parts[:3])
+        value = parts[3]
+
+        if current_key is not None and key != current_key:
+            for output in reducer.reduce(current_key, iter(current_values)):
+                sys.stdout.write(output + "\n")
+            current_values = []
+
+        current_key = key
+        current_values.append(value)
+
+    # Flush last group
+    if current_key is not None and current_values:
+        for output in reducer.reduce(current_key, iter(current_values)):
+            sys.stdout.write(output + "\n")
+
+
+if __name__ == "__main__":
+    main()
+  
+===== src\bda\reducer_sum.py =====  
+r"""
+Summation reducer for Hadoop-streaming-style BDA jobs.
+
+Groups by key and sums integer values.  Used by the class-count and scenario
+counting pipelines.
+
+Can be used as a standalone script via ``python -m src.bda.reducer_sum``
+which reads tab-separated ``key \t value`` pairs from stdin (pre-sorted by
+key) and writes ``key \t total`` to stdout.
+"""
+
+from __future__ import annotations
+
+import logging
+import sys
+from collections.abc import Iterator
+
+logger = logging.getLogger(__name__)
+
+
+class SumReducer:
+    """Reducer that sums integer values for each key."""
+
+    def reduce(self, key: str, values: Iterator[str]) -> Iterator[str]:
+        r"""
+        Sum all values for a given key.
+
+        Parameters
+        ----------
+        key:
+            The grouping key (tab-separated composite key).
+        values:
+            Iterator of string-encoded integer values.
+
+        Yields
+        ------
+        str
+            ``"key\ttotal"`` line.
+
+        """
+        total = 0
+        for v in values:
+            try:
+                total += int(v.strip())
+            except ValueError:
+                logger.debug("Non-integer value for key %r: %r", key, v)
+        yield f"{key}\t{total}"
+
+
+def main() -> None:
+    """Run as a Hadoop Streaming reducer: read sorted stdin, write to stdout."""
+    reducer = SumReducer()
+    current_key: str | None = None
+    current_values: list[str] = []
+
+    for line in sys.stdin:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        parts = stripped.rsplit("\t", maxsplit=1)
+        if len(parts) != 2:
+            continue
+        key, value = parts
+
+        if current_key is not None and key != current_key:
+            for output in reducer.reduce(current_key, iter(current_values)):
+                sys.stdout.write(output + "\n")
+            current_values = []
+
+        current_key = key
+        current_values.append(value)
+
+    # Flush last group
+    if current_key is not None and current_values:
+        for output in reducer.reduce(current_key, iter(current_values)):
+            sys.stdout.write(output + "\n")
+
+
+if __name__ == "__main__":
+    main()
+  
+===== src\bda\spark_jobs.py =====  
+"""
+Optional Spark jobs for GuardianEye BDA module.
+
+All PySpark imports are wrapped in try/except.  If ``pyspark`` is not
+installed, every public function returns a status dict with
+``{"status": "NOT YET RUN", "reason": "pyspark not installed"}``.
+
+When PySpark is available, three jobs are provided:
+
+1. **manifest_to_parquet** — read manifest CSV, write Parquet.
+2. **compute_class_weights** — compute ``w_c = N / (k * n_c)`` per modality.
+3. **compute_audio_features** — pandas UDF producing log-mel spectrogram features.
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+_NOT_YET_RUN: dict[str, str] = {
+    "status": "NOT YET RUN",
+    "reason": "pyspark not installed. Install with: pip install 'guardian-eye[spark]'",
+}
+
+try:
+    from pyspark.sql import SparkSession
+    from pyspark.sql import functions as F  # noqa: N812
+
+    PYSPARK_AVAILABLE = True
+except ImportError:
+    PYSPARK_AVAILABLE = False
+
+
+def _get_spark_session(app_name: str = "GuardianEye-BDA") -> Any:
+    """
+    Create or get a local Spark session.
+
+    Parameters
+    ----------
+    app_name:
+        Application name for the Spark session.
+
+    Returns
+    -------
+    SparkSession
+        A local Spark session.
+
+    """
+    return (
+        SparkSession.builder
+        .appName(app_name)
+        .master("local[*]")
+        .config("spark.driver.memory", "2g")
+        .getOrCreate()
+    )
+
+
+def manifest_to_parquet(
+    manifest_csv: Path,
+    output_path: Path,
+) -> dict[str, Any]:
+    """
+    Read manifest CSV and write it as Parquet.
+
+    Parameters
+    ----------
+    manifest_csv:
+        Path to the manifest CSV file.
+    output_path:
+        Path to write the Parquet file.
+
+    Returns
+    -------
+    dict[str, Any]
+        Status dict with row count and output path.
+
+    """
+    if not PYSPARK_AVAILABLE:
+        return dict(_NOT_YET_RUN)
+
+    if not manifest_csv.exists():
+        return {
+            "status": "NOT YET RUN",
+            "reason": f"Manifest CSV not found: {manifest_csv}",
+        }
+
+    spark = _get_spark_session()
+    try:
+        df = spark.read.csv(str(manifest_csv), header=True, inferSchema=True)
+        row_count = df.count()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        df.write.mode("overwrite").parquet(str(output_path))
+        logger.info("Manifest written to Parquet: %s (%d rows)", output_path, row_count)
+        return {
+            "status": "OK",
+            "output": str(output_path),
+            "row_count": row_count,
+        }
+    finally:
+        spark.stop()
+
+
+def compute_class_weights(
+    manifest_csv: Path,
+    output_path: Path,
+) -> dict[str, Any]:
+    """
+    Compute class weights ``w_c = N / (k * n_c)`` per modality.
+
+    Parameters
+    ----------
+    manifest_csv:
+        Path to the manifest CSV file.
+    output_path:
+        Path to write the class-weights Parquet file.
+
+    Returns
+    -------
+    dict[str, Any]
+        Status dict with the computed weights.
+
+    """
+    if not PYSPARK_AVAILABLE:
+        return dict(_NOT_YET_RUN)
+
+    if not manifest_csv.exists():
+        return {
+            "status": "NOT YET RUN",
+            "reason": f"Manifest CSV not found: {manifest_csv}",
+        }
+
+    spark = _get_spark_session()
+    try:
+        df = spark.read.csv(str(manifest_csv), header=True, inferSchema=True)
+        total_rows = df.count()
+        if total_rows == 0:
+            return {
+                "status": "NOT YET RUN",
+                "reason": f"Manifest CSV contains 0 data rows: {manifest_csv}",
+            }
+
+        # Count per (modality, label)
+        counts = df.groupBy("modality", "label").count()
+
+        # Total N per modality and number of distinct classes k per modality
+        totals = df.groupBy("modality").agg(
+            F.count("*").alias("N"),
+            F.countDistinct("label").alias("k"),
+        )
+
+        # Join and compute w_c = N / (k * n_c), guarding against zero division
+        weights_df = (
+            counts
+            .join(totals, on="modality")
+            .withColumn(
+                "weight",
+                F.when(
+                    (F.col("k") > 0) & (F.col("count") > 0),
+                    F.col("N") / (F.col("k") * F.col("count")),
+                ).otherwise(0.0),
+            )
+            .select("modality", "label", "count", "N", "k", "weight")
+        )
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        weights_df.write.mode("overwrite").parquet(str(output_path))
+
+        # Collect for the status dict
+        rows = weights_df.collect()
+        weight_records = [
+            {
+                "modality": r["modality"],
+                "label": r["label"],
+                "n_c": r["count"],
+                "N": r["N"],
+                "k": r["k"],
+                "weight": round(float(r["weight"]), 6),
+            }
+            for r in rows
+        ]
+
+        logger.info("Class weights computed: %d entries", len(weight_records))
+        return {
+            "status": "OK",
+            "output": str(output_path),
+            "weights": weight_records,
+        }
+    finally:
+        spark.stop()
+
+
+def compute_audio_features(
+    manifest_csv: Path,
+    output_path: Path,
+    data_root: Path | None = None,
+) -> dict[str, Any]:
+    """
+    Compute audio log-mel features using a pandas UDF.
+
+    Parameters
+    ----------
+    manifest_csv:
+        Path to the manifest CSV file.
+    output_path:
+        Path to write the features Parquet file.
+    data_root:
+        Root directory for resolving audio file paths.
+
+    Returns
+    -------
+    dict[str, Any]
+        Status dict.
+
+    """
+    if not PYSPARK_AVAILABLE:
+        return dict(_NOT_YET_RUN)
+
+    if not manifest_csv.exists():
+        return {
+            "status": "NOT YET RUN",
+            "reason": f"Manifest CSV not found: {manifest_csv}",
+        }
+
+    spark = _get_spark_session()
+    try:
+        import pandas as pd
+        from pyspark.sql.functions import pandas_udf
+
+        df = spark.read.csv(str(manifest_csv), header=True, inferSchema=True)
+        audio_df = df.filter(F.col("modality") == "audio")
+
+        row_count = audio_df.count()
+        if row_count == 0:
+            return {
+                "status": "NOT YET RUN",
+                "reason": "No audio rows in manifest.",
+            }
+
+        resolved_root_str = str(data_root.resolve()) if data_root else ""
+
+        @pandas_udf("array<float>")
+        def extract_logmel_bands_udf(paths: pd.Series) -> pd.Series:
+            """Compute 64-band log-mel energy means via pandas UDF."""
+            try:
+                import torchaudio
+                has_torchaudio = True
+            except ImportError:
+                has_torchaudio = False
+
+            results = []
+            for rel_path in paths:
+                if not has_torchaudio or not resolved_root_str:
+                    results.append([0.0] * 64)
+                    continue
+                full_path = Path(resolved_root_str) / str(rel_path)
+                if not full_path.exists():
+                    results.append([0.0] * 64)
+                    continue
+                try:
+                    waveform, sr = torchaudio.load(str(full_path))
+                    if sr != 8000:
+                        waveform = torchaudio.functional.resample(waveform, sr, 8000)
+                    if waveform.shape[0] > 1:
+                        waveform = waveform.mean(dim=0, keepdim=True)
+                    mel_spec = torchaudio.transforms.MelSpectrogram(
+                        sample_rate=8000, n_fft=512, hop_length=128, n_mels=64
+                    )(waveform)
+                    log_mel = (mel_spec + 1e-6).log()
+                    band_means = log_mel.mean(dim=2).squeeze(0).tolist()
+                    results.append([float(x) for x in band_means])
+                except Exception:
+                    results.append([0.0] * 64)
+            return pd.Series(results)
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        audio_features_df = (
+            audio_df
+            .withColumn("logmel_features", extract_logmel_bands_udf(F.col("path")))
+            .select("path", "source", "label", "split", "logmel_features")
+        )
+        audio_features_df.write.mode("overwrite").parquet(str(output_path))
+
+        logger.info("Audio features manifest written: %s (%d rows)", output_path, row_count)
+        return {
+            "status": "OK",
+            "output": str(output_path),
+            "row_count": row_count,
+            "feature_dim": 64,
+        }
+    finally:
+        spark.stop()
+
+
+def get_spark_status() -> dict[str, Any]:
+    """
+    Return the availability status of PySpark.
+
+    Returns
+    -------
+    dict[str, Any]
+        Status dict indicating whether PySpark is available.
+
+    """
+    if PYSPARK_AVAILABLE:
+        return {"status": "OK", "pyspark_available": True}
+    return dict(_NOT_YET_RUN)
+
+
+def run_all_spark_jobs(
+    manifest_csv: Path,
+    output_dir: Path,
+    data_root: Path | None = None,
+) -> dict[str, Any]:
+    """
+    Run all Spark jobs and return a combined status.
+
+    Parameters
+    ----------
+    manifest_csv:
+        Path to the manifest CSV file.
+    output_dir:
+        Directory to write Spark outputs.
+    data_root:
+        Root directory for resolving file paths.
+
+    Returns
+    -------
+    dict[str, Any]
+        Combined status for all Spark jobs.
+
+    """
+    results: dict[str, Any] = {"spark_available": PYSPARK_AVAILABLE}
+
+    if not PYSPARK_AVAILABLE:
+        results["status"] = "NOT YET RUN"
+        results["reason"] = _NOT_YET_RUN["reason"]
+        return results
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    results["manifest_parquet"] = manifest_to_parquet(
+        manifest_csv, output_dir / "manifest.parquet"
+    )
+    results["class_weights"] = compute_class_weights(
+        manifest_csv, output_dir / "class_weights.parquet"
+    )
+    results["audio_features"] = compute_audio_features(
+        manifest_csv, output_dir / "audio_features.parquet", data_root
+    )
+
+    # Overall status
+    statuses = [
+        results["manifest_parquet"].get("status"),
+        results["class_weights"].get("status"),
+        results["audio_features"].get("status"),
+    ]
+    if all(s == "OK" for s in statuses):
+        results["status"] = "OK"
+    else:
+        results["status"] = "PARTIAL"
+        not_run = [
+            k for k, v in results.items()
+            if isinstance(v, dict) and v.get("status") != "OK"
+        ]
+        results["not_run_jobs"] = not_run
+
+    return results
+  
+===== src\bda\stream.py =====  
+"""
+Streaming engine for Hadoop-streaming-style BDA jobs.
+
+If ``HADOOP_HOME`` is set and the ``hadoop`` binary is on PATH, runs
+mapper/reducer through the Hadoop Streaming jar.  Otherwise sorts mapper
+output locally and pipes through the same reducer.
+
+The engine name is logged for every run:
+- ``"hadoop_streaming"`` when using an actual Hadoop installation.
+- ``"python_streaming_local"`` when running the pure-Python fallback.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
+from src.bda.mapper_class import ClassCountMapper
+from src.bda.mapper_metric import MetricMapper
+from src.bda.mapper_scenario import ScenarioMapper
+from src.bda.reducer_metric import MetricReducer
+from src.bda.reducer_sum import SumReducer
+
+logger = logging.getLogger(__name__)
+
+# Type aliases
+MapperType = ClassCountMapper | ScenarioMapper | MetricMapper
+ReducerType = SumReducer | MetricReducer
+
+
+def _detect_hadoop() -> tuple[bool, str | None]:
+    """
+    Detect whether Hadoop is available.
+
+    Returns
+    -------
+    tuple[bool, str | None]
+        ``(is_available, streaming_jar_path)``.
+
+    """
+    hadoop_home = os.environ.get("HADOOP_HOME")
+    if not hadoop_home:
+        return False, None
+
+    hadoop_bin = shutil.which("hadoop")
+    if not hadoop_bin:
+        logger.info("HADOOP_HOME set but 'hadoop' not on PATH; using local streaming")
+        return False, None
+
+    # Try to locate the streaming jar
+    tools_lib = Path(hadoop_home) / "share" / "hadoop" / "tools" / "lib"
+    jar_candidates = sorted(tools_lib.glob("hadoop-streaming-*.jar"))
+    if not jar_candidates:
+        logger.info("Hadoop Streaming jar not found in %s; using local streaming", tools_lib)
+        return False, None
+
+    jar_path = str(jar_candidates[-1])  # latest version
+    logger.info("Detected Hadoop Streaming jar: %s", jar_path)
+    return True, jar_path
+
+
+def _run_hadoop_streaming(
+    jar_path: str,
+    mapper_module: str,
+    reducer_module: str,
+    input_path: str,
+    output_path: str,
+) -> None:
+    """
+    Run a MapReduce job through Hadoop Streaming.
+
+    Parameters
+    ----------
+    jar_path:
+        Path to the Hadoop Streaming JAR file.
+    mapper_module:
+        Python module path for the mapper (e.g. ``src.bda.mapper_class``).
+    reducer_module:
+        Python module path for the reducer (e.g. ``src.bda.reducer_sum``).
+    input_path:
+        HDFS or local input path.
+    output_path:
+        HDFS or local output path.
+
+    """
+    cmd = [
+        "hadoop", "jar", jar_path,
+        "-mapper", f"python -m {mapper_module}",
+        "-reducer", f"python -m {reducer_module}",
+        "-input", input_path,
+        "-output", output_path,
+    ]
+    logger.info("Running Hadoop Streaming: %s", " ".join(cmd))
+    subprocess.run(cmd, check=True)  # noqa: S603
+
+
+def _run_local_streaming_csv(
+    mapper: ClassCountMapper | ScenarioMapper,
+    reducer: SumReducer,
+    input_path: Path,
+    output_path: Path,
+    header_fields: list[str],
+) -> None:
+    """
+    Run a CSV-based streaming job locally.
+
+    Parameters
+    ----------
+    mapper:
+        An initialized mapper instance.
+    reducer:
+        An initialized reducer instance.
+    input_path:
+        Path to the input CSV file.
+    output_path:
+        Path to write the output CSV file.
+    header_fields:
+        Column names for the output CSV header (key components + "count").
+
+    """
+    # Map phase
+    kv_pairs: list[tuple[str, str]] = []
+
+    with input_path.open() as fh:
+        header_line = fh.readline()
+        mapper.set_header(header_line)
+        for line in fh:
+            for key, value in mapper.map(line):
+                kv_pairs.append((key, value))
+
+    logger.info(
+        "Mapper processed %d rows, skipped %d",
+        mapper.rows_processed,
+        mapper.rows_skipped,
+    )
+
+    # Sort phase (simulates Hadoop shuffle/sort)
+    kv_pairs.sort(key=lambda x: x[0])
+
+    # Reduce phase
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", newline="") as fh:
+        # Write header
+        fh.write(",".join(header_fields) + "\n")
+
+        if not kv_pairs:
+            return
+
+        current_key = kv_pairs[0][0]
+        current_values: list[str] = []
+
+        for key, value in kv_pairs:
+            if key != current_key:
+                for output_line in reducer.reduce(current_key, iter(current_values)):
+                    parts = output_line.split("\t")
+                    fh.write(",".join(parts) + "\n")
+                current_values = []
+                current_key = key
+            current_values.append(value)
+
+        # Flush last group
+        if current_values:
+            for output_line in reducer.reduce(current_key, iter(current_values)):
+                parts = output_line.split("\t")
+                fh.write(",".join(parts) + "\n")
+
+
+def _run_local_streaming_metrics(
+    input_path: Path,
+    output_path: Path,
+) -> None:
+    """
+    Run metric streaming job locally from a JSON array file.
+
+    Parameters
+    ----------
+    input_path:
+        Path to the JSON metrics file (array of metric objects).
+    output_path:
+        Path to write the output CSV file.
+
+    """
+    mapper = MetricMapper()
+    reducer = MetricReducer()
+
+    # Map phase: read JSON array and emit key-value pairs
+    with input_path.open() as fh:
+        records = json.load(fh)
+
+    if not isinstance(records, list):
+        records = [records]
+
+    kv_pairs: list[tuple[str, str]] = []
+    for record in records:
+        line = json.dumps(record)
+        for key, value in mapper.map(line):
+            kv_pairs.append((key, value))
+
+    # Sort phase
+    kv_pairs.sort(key=lambda x: x[0])
+
+    # Reduce phase
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", newline="") as fh:
+        fh.write("method,condition,metric,n,mean,sample_std\n")
+
+        if not kv_pairs:
+            return
+
+        current_key = kv_pairs[0][0]
+        current_values: list[str] = []
+
+        for key, value in kv_pairs:
+            if key != current_key:
+                for output_line in reducer.reduce(current_key, iter(current_values)):
+                    parts = output_line.split("\t")
+                    fh.write(",".join(parts) + "\n")
+                current_values = []
+                current_key = key
+            current_values.append(value)
+
+        if current_values:
+            for output_line in reducer.reduce(current_key, iter(current_values)):
+                parts = output_line.split("\t")
+                fh.write(",".join(parts) + "\n")
+
+
+def get_engine_name() -> str:
+    """
+    Return the name of the streaming engine that will be used.
+
+    Returns
+    -------
+    str
+        ``"hadoop_streaming"`` or ``"python_streaming_local"``.
+
+    """
+    has_hadoop, _ = _detect_hadoop()
+    return "hadoop_streaming" if has_hadoop else "python_streaming_local"
+
+
+def run_class_counts(
+    manifest_path: Path,
+    output_path: Path,
+) -> dict[str, str | int]:
+    """
+    Run the class-count streaming job.
+
+    Parameters
+    ----------
+    manifest_path:
+        Path to the manifest CSV file.
+    output_path:
+        Path to write the output CSV file.
+
+    Returns
+    -------
+    dict[str, str | int]
+        Status information including engine name and row count.
+
+    """
+    engine = get_engine_name()
+    logger.info("Running class-counts job with engine: %s", engine)
+
+    if not manifest_path.exists():
+        logger.warning("Manifest not found: %s", manifest_path)
+        return {
+            "status": "NOT YET RUN",
+            "reason": f"Manifest file not found: {manifest_path}",
+            "engine": engine,
+        }
+
+    if engine == "hadoop_streaming":
+        _, jar_path = _detect_hadoop()
+        assert jar_path is not None
+        _run_hadoop_streaming(
+            jar_path,
+            "src.bda.mapper_class",
+            "src.bda.reducer_sum",
+            str(manifest_path),
+            str(output_path),
+        )
+    else:
+        mapper = ClassCountMapper()
+        reducer = SumReducer()
+        _run_local_streaming_csv(
+            mapper,
+            reducer,
+            manifest_path,
+            output_path,
+            header_fields=["modality", "source", "label", "count"],
+        )
+
+    return {"status": "OK", "engine": engine, "output": str(output_path)}
+
+
+def run_scenario_counts(
+    scenarios_path: Path,
+    output_path: Path,
+) -> dict[str, str | int]:
+    """
+    Run the scenario-count streaming job.
+
+    Parameters
+    ----------
+    scenarios_path:
+        Path to the scenario CSV file.
+    output_path:
+        Path to write the output CSV file.
+
+    Returns
+    -------
+    dict[str, str | int]
+        Status information including engine name.
+
+    """
+    engine = get_engine_name()
+    logger.info("Running scenario-counts job with engine: %s", engine)
+
+    if not scenarios_path.exists():
+        logger.warning("Scenarios file not found: %s", scenarios_path)
+        return {
+            "status": "NOT YET RUN",
+            "reason": f"Scenarios file not found: {scenarios_path}",
+            "engine": engine,
+        }
+
+    if engine == "hadoop_streaming":
+        _, jar_path = _detect_hadoop()
+        assert jar_path is not None
+        _run_hadoop_streaming(
+            jar_path,
+            "src.bda.mapper_scenario",
+            "src.bda.reducer_sum",
+            str(scenarios_path),
+            str(output_path),
+        )
+    else:
+        mapper = ScenarioMapper()
+        reducer = SumReducer()
+        _run_local_streaming_csv(
+            mapper,
+            reducer,
+            scenarios_path,
+            output_path,
+            header_fields=["split", "scenario", "suspicious", "risk", "count"],
+        )
+
+    return {"status": "OK", "engine": engine, "output": str(output_path)}
+
+
+def run_metric_summary(
+    metrics_path: Path,
+    output_path: Path,
+) -> dict[str, str | int]:
+    """
+    Run the metric summary streaming job.
+
+    Parameters
+    ----------
+    metrics_path:
+        Path to the metrics JSON file.
+    output_path:
+        Path to write the output CSV file.
+
+    Returns
+    -------
+    dict[str, str | int]
+        Status information including engine name.
+
+    """
+    engine = get_engine_name()
+    logger.info("Running metric-summary job with engine: %s", engine)
+
+    if not metrics_path.exists():
+        logger.warning("Metrics file not found: %s", metrics_path)
+        return {
+            "status": "NOT YET RUN",
+            "reason": f"Metrics file not found: {metrics_path}",
+            "engine": engine,
+        }
+
+    if engine == "hadoop_streaming":
+        _, jar_path = _detect_hadoop()
+        assert jar_path is not None
+        _run_hadoop_streaming(
+            jar_path,
+            "src.bda.mapper_metric",
+            "src.bda.reducer_metric",
+            str(metrics_path),
+            str(output_path),
+        )
+    else:
+        _run_local_streaming_metrics(metrics_path, output_path)
+
+    return {"status": "OK", "engine": engine, "output": str(output_path)}
+  
+===== src\bda\__init__.py =====  
+"""
+Big Data Analytics (BDA) module — Phase 3.
+
+Provides Hadoop-streaming-style MapReduce jobs, an optional Spark path,
+and a local Python streaming fallback for counting and summarizing
+manifest data, scenario counts, and evaluation metrics.
+
+Public API
+----------
+Mappers:
+    ClassCountMapper  — emits (modality, source, label) → 1
+    ScenarioMapper    — emits (split, scenario, suspicious, risk) → 1
+    MetricMapper      — emits (method, condition, metric) → value
+
+Reducers:
+    SumReducer        — sums integer values per key
+    MetricReducer     — computes n, mean, sample_std per key
+
+Engine:
+    stream.run_class_counts      — run class-count pipeline
+    stream.run_scenario_counts   — run scenario-count pipeline
+    stream.run_metric_summary    — run metric-summary pipeline
+    stream.get_engine_name       — report Hadoop vs local engine
+
+Spark (optional):
+    spark_jobs.get_spark_status        — check PySpark availability
+    spark_jobs.manifest_to_parquet     — ingest manifest to Parquet
+    spark_jobs.compute_class_weights   — compute w_c = N / (k * n_c)
+    spark_jobs.compute_audio_features  — audio log-mel feature manifest
+"""
+
+from src.bda.mapper_class import ClassCountMapper
+from src.bda.mapper_metric import MetricMapper
+from src.bda.mapper_scenario import ScenarioMapper
+from src.bda.reducer_metric import MetricReducer
+from src.bda.reducer_sum import SumReducer
+
+__all__ = [
+    "ClassCountMapper",
+    "MetricMapper",
+    "ScenarioMapper",
+    "MetricReducer",
+    "SumReducer",
+]
+  
+===== src\bda\schema.hql =====  
+-- =============================================================================
+-- GuardianEye — Hive DDL schema for BDA outputs
+-- =============================================================================
+-- This file defines EXTERNAL TABLES that point at the CSV/Parquet outputs
+-- produced by the BDA streaming and Spark pipelines.
+--
+-- IMPORTANT: This file is NEVER EXECUTED by the GuardianEye pipeline.
+-- It serves as documentation for how a Hive environment would consume
+-- the BDA outputs.  Adjust LOCATION paths to match your HDFS layout.
+-- =============================================================================
+
+CREATE DATABASE IF NOT EXISTS guardian_eye
+  COMMENT 'GuardianEye anti-poaching analytics';
+
+USE guardian_eye;
+
+-- ---------------------------------------------------------------------------
+-- Manifest table (from Phase 1 manifest CSV)
+-- ---------------------------------------------------------------------------
+CREATE EXTERNAL TABLE IF NOT EXISTS manifest (
+    path            STRING      COMMENT 'POSIX relative path from data root',
+    modality        STRING      COMMENT 'image or audio',
+    source          STRING      COMMENT 'Dataset slug: birdsai, cct, serengeti, belize, vietnam, esc50',
+    label           STRING      COMMENT 'Canonical class label',
+    view            STRING      COMMENT 'aerial_thermal, camera_trap, or acoustic',
+    site_or_device  STRING      COMMENT 'Site or device identifier',
+    noise_tag       STRING      COMMENT 'thunder_wind or not_thunder_wind',
+    original_split  STRING      COMMENT 'Original dataset split: train, val, test, or unspecified',
+    group_id        STRING      COMMENT 'Group identifier for leakage-free splitting',
+    split           STRING      COMMENT 'Assigned experimental split: train, val, or test',
+    notes           STRING      COMMENT 'Additional notes'
+)
+ROW FORMAT DELIMITED
+    FIELDS TERMINATED BY ','
+    LINES TERMINATED BY '\n'
+STORED AS TEXTFILE
+LOCATION '/data/guardian_eye/manifest/'
+TBLPROPERTIES ('skip.header.line.count' = '1');
+
+-- ---------------------------------------------------------------------------
+-- Class counts (from BDA class-count streaming job)
+-- ---------------------------------------------------------------------------
+CREATE EXTERNAL TABLE IF NOT EXISTS class_counts (
+    modality    STRING      COMMENT 'image or audio',
+    source      STRING      COMMENT 'Dataset slug',
+    label       STRING      COMMENT 'Class label',
+    count       BIGINT      COMMENT 'Number of files'
+)
+ROW FORMAT DELIMITED
+    FIELDS TERMINATED BY ','
+    LINES TERMINATED BY '\n'
+STORED AS TEXTFILE
+LOCATION '/data/guardian_eye/bda/class_counts/'
+TBLPROPERTIES ('skip.header.line.count' = '1');
+
+-- ---------------------------------------------------------------------------
+-- Scenario counts (from BDA scenario streaming job)
+-- ---------------------------------------------------------------------------
+CREATE EXTERNAL TABLE IF NOT EXISTS scenario_counts (
+    split       STRING      COMMENT 'Experimental split: train, val, or test',
+    scenario    STRING      COMMENT 'Scenario name (e.g. human_gunshot)',
+    suspicious  INT         COMMENT '1 if suspicious, 0 otherwise',
+    risk        STRING      COMMENT 'Risk level: HIGH, MEDIUM, or LOW',
+    count       BIGINT      COMMENT 'Number of pairs'
+)
+ROW FORMAT DELIMITED
+    FIELDS TERMINATED BY ','
+    LINES TERMINATED BY '\n'
+STORED AS TEXTFILE
+LOCATION '/data/guardian_eye/bda/scenario_counts/'
+TBLPROPERTIES ('skip.header.line.count' = '1');
+
+-- ---------------------------------------------------------------------------
+-- Metric summary (from BDA metric streaming job)
+-- ---------------------------------------------------------------------------
+CREATE EXTERNAL TABLE IF NOT EXISTS metric_summary (
+    method      STRING      COMMENT 'Evaluation method (e.g. late_fusion, image_only)',
+    condition   STRING      COMMENT 'Evaluation condition (e.g. clean, audio_dropped)',
+    metric      STRING      COMMENT 'Metric name (e.g. f1, accuracy, fpr)',
+    n           INT         COMMENT 'Number of seed runs contributing to the statistic',
+    mean        DOUBLE      COMMENT 'Arithmetic mean across seeds',
+    sample_std  DOUBLE      COMMENT 'Sample standard deviation (n-1 divisor); NULL if n < 2'
+)
+ROW FORMAT DELIMITED
+    FIELDS TERMINATED BY ','
+    LINES TERMINATED BY '\n'
+STORED AS TEXTFILE
+LOCATION '/data/guardian_eye/bda/metric_summary/'
+TBLPROPERTIES ('skip.header.line.count' = '1');
+
+-- ---------------------------------------------------------------------------
+-- Manifest Parquet table (from Spark ingest job)
+-- ---------------------------------------------------------------------------
+CREATE EXTERNAL TABLE IF NOT EXISTS manifest_parquet (
+    path            STRING,
+    modality        STRING,
+    source          STRING,
+    label           STRING,
+    view            STRING,
+    site_or_device  STRING,
+    noise_tag       STRING,
+    original_split  STRING,
+    group_id        STRING,
+    split           STRING,
+    notes           STRING
+)
+STORED AS PARQUET
+LOCATION '/data/guardian_eye/bda/manifest_parquet/';
+
+-- ---------------------------------------------------------------------------
+-- Class weights Parquet table (from Spark class-weight job)
+-- ---------------------------------------------------------------------------
+CREATE EXTERNAL TABLE IF NOT EXISTS class_weights (
+    modality    STRING,
+    label       STRING,
+    count       BIGINT      COMMENT 'n_c: count of class c',
+    N           BIGINT      COMMENT 'Total samples in modality',
+    k           INT         COMMENT 'Number of distinct classes',
+    weight      DOUBLE      COMMENT 'w_c = N / (k * n_c)'
+)
+STORED AS PARQUET
+LOCATION '/data/guardian_eye/bda/class_weights/';
+
+-- ---------------------------------------------------------------------------
+-- Audio features Parquet table (from Spark audio log-mel UDF job)
+-- ---------------------------------------------------------------------------
+CREATE EXTERNAL TABLE IF NOT EXISTS audio_features (
+    path            STRING      COMMENT 'Audio file relative path',
+    source          STRING      COMMENT 'Audio dataset source',
+    label           STRING      COMMENT 'Class label: gunshot or background',
+    split           STRING      COMMENT 'Experimental split: train, val, or test',
+    logmel_features ARRAY<FLOAT> COMMENT '64-band log-mel energy features'
+)
+STORED AS PARQUET
+LOCATION '/data/guardian_eye/bda/audio_features/';
+  
+===== Makefile =====  
+# =============================================================================
+# GuardianEye Makefile
+# =============================================================================
+# Usage:
+#   make setup         — install Python 3.11 dev dependencies
+#   make test          — run pytest (CPU-only, no CUDA required)
+#   make lint          — run ruff check
+#   make data-check    — verify expected dataset directories exist
+#   make manifest      — list all dataset files to stdout
+#   make pack-data     — archive each dataset dir for cloud upload
+#   make train-image   — (Phase 1) train image branch          [NOT YET]
+#   make train-audio   — (Phase 1) train audio branch          [NOT YET]
+#   make pairs         — (Phase 2) create image-audio pairs    [NOT YET]
+#   make fuse          — (Phase 2) run late-fusion evaluation  [NOT YET]
+#   make evaluate      — (Phase 2) run full evaluation harness [NOT YET]
+#   make bda           — (Phase 3) run BDA streaming jobs
+#   make bda-check     — (Phase 3) run BDA self-check on fixtures
+#   make serve         — (Phase 4) start the REST API server   [NOT YET]
+#   make smoke         — run --smoke mode (fast CPU self-test)
+# =============================================================================
+
+PYTHON   := py -3.11
+PIP      := $(PYTHON) -m pip
+PYTEST   := $(PYTHON) -m pytest
+RUFF     := $(PYTHON) -m ruff
+
+# Allow DATA_ROOT / RESULTS_ROOT to be set externally
+DATA_ROOT    ?=
+RESULTS_ROOT ?=
+
+# Build optional CLI path flags when env vars are set
+_DATA_FLAG    := $(if $(DATA_ROOT),--data-root $(DATA_ROOT),)
+_RESULTS_FLAG := $(if $(RESULTS_ROOT),--results-root $(RESULTS_ROOT),)
+
+.PHONY: setup test lint smoke data-check manifest pack-data \
+        train-image train-audio pairs pairs-check fuse evaluate bda bda-check serve \
+        clean help
+
+# ---------------------------------------------------------------------------
+# Setup
+# ---------------------------------------------------------------------------
+setup:
+	$(PIP) install -e ".[dev]"
+
+# ---------------------------------------------------------------------------
+# Test & Lint (Phase 0 — CPU-only)
+# ---------------------------------------------------------------------------
+test:
+	$(PYTEST) tests/ -v --tb=short
+
+lint:
+	$(RUFF) check .
+
+smoke:
+	$(PYTHON) -m scripts.run --smoke $(_DATA_FLAG) $(_RESULTS_FLAG)
+
+# ---------------------------------------------------------------------------
+# Data utilities
+# ---------------------------------------------------------------------------
+data-check:
+	@$(PYTHON) -c "import pathlib; p = pathlib.Path('data/raw'); print('Checking expected dataset directories...'); [print(f'  [OK]  {p / d}' if (p / d).is_dir() else f'  [!!]  MISSING: {p / d}') for d in ['birdsai', 'cct', 'serengeti', 'belize', 'vietnam', 'esc50']]"
+
+manifest:
+	$(PYTHON) scripts/build_manifest.py $(_DATA_FLAG) $(_RESULTS_FLAG)
+
+verify-data:
+	$(PYTHON) scripts/verify_data.py $(_DATA_FLAG)
+
+pack-data:
+	$(PYTHON) scripts/pack_data.py $(_DATA_FLAG) $(_RESULTS_FLAG)
+
+# ---------------------------------------------------------------------------
+# Phase 1+ targets — NOT YET AVAILABLE
+# ---------------------------------------------------------------------------
+train-image:
+	$(PYTHON) scripts/train_image.py $(_DATA_FLAG) $(_RESULTS_FLAG)
+
+train-audio:
+	$(PYTHON) scripts/train_audio.py $(_DATA_FLAG) $(_RESULTS_FLAG)
+
+evaluate-unimodal:
+	$(PYTHON) scripts/evaluate_unimodal.py $(_DATA_FLAG) $(_RESULTS_FLAG)
+
+pairs:
+	$(PYTHON) scripts/run_pairing.py $(_DATA_FLAG) $(_RESULTS_FLAG)
+
+pairs-check:
+	$(PYTHON) scripts/run_pairing.py --self-check $(_DATA_FLAG) $(_RESULTS_FLAG)
+
+fuse:
+	$(_not_yet)
+
+evaluate:
+	$(_not_yet)
+
+bda:
+	$(PYTHON) scripts/run_bda.py $(_DATA_FLAG) $(_RESULTS_FLAG)
+
+bda-check:
+	$(PYTHON) scripts/run_bda.py --self-check $(_DATA_FLAG) $(_RESULTS_FLAG)
+
+serve:
+	$(_not_yet)
+
+# ---------------------------------------------------------------------------
+# Housekeeping
+# ---------------------------------------------------------------------------
+clean:
+	@echo Removing Python caches...
+	@$(PYTHON) -c "import pathlib, shutil; [shutil.rmtree(p, ignore_errors=True) for p in pathlib.Path('.').rglob('__pycache__')]; [shutil.rmtree(p, ignore_errors=True) for p in pathlib.Path('.').rglob('.pytest_cache')]; [shutil.rmtree(p, ignore_errors=True) for p in pathlib.Path('.').rglob('.ruff_cache')]"
+
+help:
+	@grep -E '^[a-zA-Z_-]+:' Makefile | \
+		awk -F: '{printf "  %-16s\n", $$1}'
+C:\Users\m\Desktop\guardian-eye\results\.gitkeep
+C:\Users\m\Desktop\guardian-eye\results\bda
+C:\Users\m\Desktop\guardian-eye\results\protocol
+C:\Users\m\Desktop\guardian-eye\results\runs
+C:\Users\m\Desktop\guardian-eye\results\bda\bda_status.json
+C:\Users\m\Desktop\guardian-eye\results\bda\class_counts.csv
+C:\Users\m\Desktop\guardian-eye\results\bda\self_check
+C:\Users\m\Desktop\guardian-eye\results\bda\self_check\class_counts_check.csv
+C:\Users\m\Desktop\guardian-eye\results\bda\self_check\metric_summary_check.csv
+C:\Users\m\Desktop\guardian-eye\results\bda\self_check\scenario_counts_check.csv
+C:\Users\m\Desktop\guardian-eye\results\protocol\pairing_self_check.json
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_26009
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_27
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_2701
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_26009\manifest
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_26009\metrics
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_26009\outputs
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_26009\pairing
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_26009\unimodal_status.json
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_26009\manifest\manifest.csv
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_26009\manifest\manifest_status.json
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_26009\metrics\unimodal_summary.json
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_26009\outputs\unimodal_status.json
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_26009\pairing\pairing_status.json
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_26009\pairing\pairs.csv
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_26009\pairing\scenarios.csv
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_27\manifest
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_27\metrics
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_27\outputs
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_27\pairing
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_27\unimodal_status.json
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_27\manifest\manifest.csv
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_27\manifest\manifest_status.json
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_27\metrics\unimodal_summary.json
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_27\outputs\unimodal_status.json
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_27\pairing\pairing_status.json
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_27\pairing\pairs.csv
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_27\pairing\scenarios.csv
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_2701\manifest
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_2701\metrics
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_2701\outputs
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_2701\pairing
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_2701\unimodal_status.json
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_2701\manifest\manifest.csv
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_2701\manifest\manifest_status.json
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_2701\metrics\unimodal_summary.json
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_2701\outputs\unimodal_status.json
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_2701\pairing\pairing_status.json
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_2701\pairing\pairs.csv
+C:\Users\m\Desktop\guardian-eye\results\runs\seed_2701\pairing\scenarios.csv
